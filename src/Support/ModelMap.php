@@ -243,6 +243,14 @@ class ModelMap
             'cancelled_at' => optional($order->cancelled_at ?? null)?->toIso8601String(),
             'cancel_reason' => self::get($order, 'cancel_reason'),
             'payment_gateway_names' => [self::get($order, 'payment_method', 'cod')],
+            // Required by the contract even for a guest-checkout store with no Customer
+            // model: both are built from the order's own columns in that case (see
+            // columns.order.customer_name/address). With a real Customer model configured,
+            // override these two via a future relation-based mapping if you need richer data -
+            // for now the order's own phone/email/address columns are used either way, which
+            // Chattrn needs regardless of whether a separate Customer record also exists.
+            'customer' => self::orderCustomer($order),
+            'shipping_address' => self::orderShippingAddress($order),
             'line_items' => $lineItems->map(fn ($li) => [
                 'id' => $li->getKey(),
                 'title' => self::lineItemTitle($li),
@@ -253,6 +261,24 @@ class ModelMap
             'shipping_lines' => [],
             'fulfillments' => [],
         ];
+    }
+
+    private static function orderCustomer(Model $order): array
+    {
+        return array_filter([
+            'first_name' => self::get($order, self::col('order', 'customer_name', 'customer_name')),
+            'phone' => self::get($order, self::col('order', 'phone', 'phone')),
+            'email' => self::get($order, 'email'),
+        ], fn ($v) => $v !== null && $v !== '');
+    }
+
+    private static function orderShippingAddress(Model $order): array
+    {
+        return array_filter([
+            'name' => self::get($order, self::col('order', 'customer_name', 'customer_name')),
+            'phone' => self::get($order, self::col('order', 'phone', 'phone')),
+            'address1' => self::get($order, self::col('order', 'address', 'address')),
+        ], fn ($v) => $v !== null && $v !== '');
     }
 
     // Falls back to the line item's related product (via a product() relation on the line

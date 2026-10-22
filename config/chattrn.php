@@ -97,6 +97,12 @@ return [
             'currency' => null,
             'financial_status' => 'status',
             'fulfillment_status' => null,
+            // Only needed for a guest-checkout store with no Customer model (customer/shipping
+            // details stored directly on the order row). With a Customer model configured,
+            // leave these null - toOrder() falls back to the order's own phone/email columns
+            // either way, which is enough for a single string shipping address.
+            'customer_name' => null,
+            'address' => null,
         ],
         'customer' => [
             'phone' => 'phone',

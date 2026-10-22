@@ -30,6 +30,11 @@ class MapCommand extends Command
         $config['models']['order'] = $this->askModel('Order', $config['models']['order']);
         $config['models']['customer'] = $this->askModel('Customer (blank if orders carry phone/email directly)', $config['models']['customer'], true);
 
+        if (! $config['models']['customer']) {
+            $config['columns']['order']['customer_name'] = $this->ask('Column on the Order model that holds the customer\'s name', $config['columns']['order']['customer_name'] ?: 'customer_name');
+            $config['columns']['order']['address'] = $this->ask('Column on the Order model that holds the shipping address', $config['columns']['order']['address'] ?: 'address');
+        }
+
         $config['columns']['variant']['price'] = $this->ask('Column that holds price on the ' . ($config['models']['variant'] ?: 'Product') . ' model', $config['columns']['variant']['price'] ?? 'price');
         $config['columns']['variant']['stock'] = $this->ask('Column that holds stock on the ' . ($config['models']['variant'] ?: 'Product') . ' model', $config['columns']['variant']['stock'] ?? 'stock');
         $config['columns']['order']['total'] = $this->ask('Column that holds the order total', $config['columns']['order']['total'] ?? 'total');
