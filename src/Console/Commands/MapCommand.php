@@ -18,7 +18,12 @@ class MapCommand extends Command
 
     public function handle(): int
     {
-        $config = require config_path('chattrn.php');
+        // Deep-merge with the package's own default config so a config/chattrn.php published
+        // by an older version of this package (missing newer keys like 'inventory' or
+        // columns.order_item) doesn't blow up with undefined array key errors below.
+        $defaults = require __DIR__ . '/../../../config/chattrn.php';
+        $published = require config_path('chattrn.php');
+        $config = array_replace_recursive($defaults, $published);
 
         $config['models']['product'] = $this->askModel('Product', $config['models']['product']);
         $config['models']['variant'] = $this->askModel('Variant (blank if products have no variants)', $config['models']['variant'], true);
@@ -28,6 +33,23 @@ class MapCommand extends Command
         $config['columns']['variant']['price'] = $this->ask('Column that holds price on the ' . ($config['models']['variant'] ?: 'Product') . ' model', $config['columns']['variant']['price'] ?? 'price');
         $config['columns']['variant']['stock'] = $this->ask('Column that holds stock on the ' . ($config['models']['variant'] ?: 'Product') . ' model', $config['columns']['variant']['stock'] ?? 'stock');
         $config['columns']['order']['total'] = $this->ask('Column that holds the order total', $config['columns']['order']['total'] ?? 'total');
+
+        if ($this->confirm('Does price/stock vary by outlet/location (a separate inventory table), rather than being flat columns above?', (bool) $config['inventory']['model'])) {
+            $config['inventory']['model'] = $this->askModel('Inventory', $config['inventory']['model']);
+            $config['inventory']['columns']['product_id'] = $this->ask('Column on the Inventory model that holds the product id', $config['inventory']['columns']['product_id'] ?? 'product_id');
+            $config['inventory']['columns']['location_id'] = $this->ask('Column on the Inventory model that holds the location/outlet id', $config['inventory']['columns']['location_id'] ?? 'outlet_id');
+            $config['inventory']['columns']['price'] = $this->ask('Column on the Inventory model that holds price', $config['inventory']['columns']['price'] ?? 'price');
+            $config['inventory']['columns']['stock'] = $this->ask('Column on the Inventory model that holds stock', $config['inventory']['columns']['stock'] ?? 'stock');
+            $config['models']['location'] = $this->askModel('Location/Outlet (served from locations.json)', $config['models']['location'], true);
+            $config['store']['primary_location_id'] = $this->ask('Primary location id shown in the catalog before Chattrn knows the customer\'s outlet (blank = first active location)', $config['store']['primary_location_id']) ?: null;
+        }
+
+        if ($lineItemHint = $this->ask('If orders have line items with a title/price/sku column that differs from "title"/"price"/"sku" (e.g. a "name" column), list them as title:price:sku - blank to skip', null)) {
+            [$titleCol, $priceCol, $skuCol] = array_pad(explode(':', $lineItemHint), 3, null);
+            $config['columns']['order_item']['title'] = $titleCol ?: $config['columns']['order_item']['title'];
+            $config['columns']['order_item']['price'] = $priceCol ?: $config['columns']['order_item']['price'];
+            $config['columns']['order_item']['sku'] = $skuCol ?: $config['columns']['order_item']['sku'];
+        }
 
         if (! ConfigWriter::write(config_path('chattrn.php'), $config)) {
             $this->error('Could not write config/chattrn.php - check it is writable.');

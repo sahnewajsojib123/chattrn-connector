@@ -74,10 +74,24 @@ class ModelMap
         ];
     }
 
-    public static function toVariant(Model $variant, ?Model $product = null): array
+    public static function toVariant(Model $variant, ?Model $product = null, $locationId = null): array
     {
         $priceCol = self::col('variant', 'price', 'price');
         $stockCol = self::col('variant', 'stock', 'stock');
+
+        // A store whose price/stock vary by location (config('chattrn.inventory.model') set)
+        // reads the catalog figure from the inventory row at the primary/given location
+        // instead of a flat column on the variant row. See inventoryLevels() for the
+        // per-location figures Chattrn asks for once it knows the customer's outlet.
+        $inv = self::inventoryRow($product ?? $variant, $locationId);
+        if ($inv) {
+            $invCols = config('chattrn.inventory.columns', []);
+            $price = self::get($inv, $invCols['price'] ?? 'price');
+            $stock = self::get($inv, $invCols['stock'] ?? 'stock');
+        } else {
+            $price = self::get($variant, $priceCol);
+            $stock = self::get($variant, $stockCol);
+        }
 
         return [
             'id' => $variant->getKey(),
@@ -86,15 +100,58 @@ class ModelMap
             'option1' => self::get($variant, 'option1'),
             'option2' => self::get($variant, 'option2'),
             'option3' => self::get($variant, 'option3'),
-            'price' => self::money(self::get($variant, $priceCol)),
+            'price' => self::money($price),
             'compare_at_price' => self::moneyOrNull(self::get($variant, self::col('variant', 'compare_at_price', 'compare_at_price'))),
             'sku' => self::get($variant, self::col('variant', 'sku', 'sku')),
             'barcode' => self::get($variant, 'barcode'),
             'inventory_item_id' => $variant->getKey(),
-            'inventory_quantity' => self::get($variant, $stockCol),
-            'inventory_management' => self::get($variant, $stockCol) === null ? null : 'chattrn',
+            'inventory_quantity' => $stock,
+            'inventory_management' => $stock === null ? null : 'chattrn',
             'inventory_policy' => 'deny',
         ];
+    }
+
+    // ---- Per-location inventory (optional; see config('chattrn.inventory')) ----
+
+    public static function inventoryModelClass(): ?string
+    {
+        $class = config('chattrn.inventory.model');
+        return ($class && class_exists($class)) ? $class : null;
+    }
+
+    public static function primaryLocationId()
+    {
+        if ($id = config('chattrn.store.primary_location_id')) {
+            return $id;
+        }
+        $locationClass = config('chattrn.models.location');
+        if ($locationClass && class_exists($locationClass)) {
+            $query = $locationClass::query();
+            $table = (new $locationClass)->getTable();
+            if (\Illuminate\Support\Facades\Schema::hasColumn($table, 'active')) {
+                $query->where('active', true);
+            }
+            return optional($query->first())->getKey();
+        }
+        return null;
+    }
+
+    private static function inventoryRow(?Model $product, $locationId = null)
+    {
+        $class = self::inventoryModelClass();
+        if (! $class || ! $product) {
+            return null;
+        }
+        $cols = config('chattrn.inventory.columns', []);
+        $productCol = $cols['product_id'] ?? 'product_id';
+        $locationCol = $cols['location_id'] ?? 'location_id';
+        $locationId = $locationId ?? self::primaryLocationId();
+
+        $query = $class::query()->where($productCol, $product->getKey());
+        if ($locationId !== null) {
+            $query->where($locationCol, $locationId);
+        }
+        return $query->first();
     }
 
     // Products without a configured variant model are treated as their own single default
@@ -160,14 +217,37 @@ class ModelMap
             'payment_gateway_names' => [self::get($order, 'payment_method', 'cod')],
             'line_items' => $lineItems->map(fn ($li) => [
                 'id' => $li->getKey(),
-                'title' => self::get($li, 'title', 'Item'),
-                'quantity' => self::get($li, 'quantity', 1),
-                'price' => self::money(self::get($li, 'price', 0)),
-                'sku' => self::get($li, 'sku'),
+                'title' => self::lineItemTitle($li),
+                'quantity' => self::get($li, self::col('order_item', 'quantity', 'quantity'), 1),
+                'price' => self::money(self::get($li, self::col('order_item', 'price', 'price'), 0)),
+                'sku' => self::lineItemSku($li),
             ])->values()->all(),
             'shipping_lines' => [],
             'fulfillments' => [],
         ];
+    }
+
+    // Falls back to the line item's related product (via a product() relation on the line
+    // item model) when the line item table itself has no title/sku column - e.g. order_items
+    // storing a 'name' snapshot instead, or no sku at all (only products.sku).
+    private static function lineItemTitle(Model $li): string
+    {
+        $direct = self::get($li, self::col('order_item', 'title', 'title'));
+        if ($direct !== null) {
+            return $direct;
+        }
+        $product = method_exists($li, 'product') ? $li->product : null;
+        return $product ? (self::get($product, self::col('product', 'title', 'title')) ?? 'Item') : 'Item';
+    }
+
+    private static function lineItemSku(Model $li)
+    {
+        $direct = self::get($li, self::col('order_item', 'sku', 'sku'));
+        if ($direct !== null) {
+            return $direct;
+        }
+        $product = method_exists($li, 'product') ? $li->product : null;
+        return $product ? self::get($product, self::col('variant', 'sku', 'sku')) : null;
     }
 
     public static function toCustomer(Model $customer): array

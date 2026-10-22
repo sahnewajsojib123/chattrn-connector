@@ -112,13 +112,38 @@ class ChattrnApiController extends Controller
 
     public function inventoryLevels(Request $request): JsonResponse
     {
-        $variantClass = ModelMap::variantModelClass();
-        if (! $variantClass || ! class_exists($variantClass)) {
-            return $this->version(response()->json(['inventory_levels' => []]));
-        }
         $itemIds = array_filter(explode(',', (string) $request->query('inventory_item_ids', '')));
         if (! $itemIds) {
             return $this->version(response()->json(['errors' => ['inventory_item_ids' => ['or location_ids is required']]], 422));
+        }
+        $locationIds = array_filter(explode(',', (string) $request->query('location_ids', '')));
+
+        // Per-location stock (delivery_mode=outlet stores with config('chattrn.inventory.model')
+        // set): inventory_item_id here is the variant id, or the product id when the store has
+        // no separate Variant model (see ModelMap::variantsOf) - either way it matches
+        // inventory.columns.product_id for a store with no Variant model.
+        $invClass = ModelMap::inventoryModelClass();
+        if ($invClass) {
+            $cols = config('chattrn.inventory.columns', []);
+            $productCol = $cols['product_id'] ?? 'product_id';
+            $locationCol = $cols['location_id'] ?? 'location_id';
+            $stockCol = $cols['stock'] ?? 'stock';
+
+            $query = $invClass::query()->whereIn($productCol, $itemIds);
+            if ($locationIds) {
+                $query->whereIn($locationCol, $locationIds);
+            }
+            $rows = $query->get();
+            return $this->version(response()->json(['inventory_levels' => $rows->map(fn ($row) => [
+                'inventory_item_id' => $row->{$productCol}, 'location_id' => $row->{$locationCol},
+                'available' => $row->{$stockCol} ?? null, 'updated_at' => optional($row->updated_at)->toIso8601String(),
+            ])->values()->all()]));
+        }
+
+        // Flat stock on the variant/product row: single default location, as before.
+        $variantClass = ModelMap::variantModelClass();
+        if (! $variantClass || ! class_exists($variantClass)) {
+            return $this->version(response()->json(['inventory_levels' => []]));
         }
         $stockCol = config('chattrn.columns.variant.stock', 'stock');
         $rows = $variantClass::query()->whereKey($itemIds)->get();

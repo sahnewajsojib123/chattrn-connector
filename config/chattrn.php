@@ -28,6 +28,12 @@ return [
         'delivery_mode' => env('CHATTRN_DELIVERY_MODE', 'zone'), // zone | outlet
         'product_url_template' => null, // e.g. https://your-store.com/product/{handle}
         'cart_url_template' => null,
+
+        // Only meaningful for delivery_mode=outlet stores whose price/stock vary by location
+        // (see 'inventory' below). The location shown in products.json/products search before
+        // Chattrn has asked the customer which outlet/zone they're in. Unset -> the first
+        // active row from the 'location' model is used instead.
+        'primary_location_id' => env('CHATTRN_PRIMARY_LOCATION_ID'),
     ],
 
     // Which Eloquent model answers each canonical resource. Filled in by chattrn:map.
@@ -37,6 +43,23 @@ return [
         'order' => null,
         'customer' => null,
         'location' => null,
+    ],
+
+    // Optional: only set this if price and/or stock vary by location (delivery_mode=outlet
+    // stores with a separate per-outlet inventory table). Leave 'model' null for a store where
+    // price/stock are flat columns on the Product/Variant row - columns.variant.price/stock
+    // below are used instead, exactly as before, and inventory_levels.json answers with the
+    // single default location. When 'model' is set, ModelMap reads price/stock for the catalog
+    // from the row matching store.primary_location_id (or the first active location), and
+    // inventoryLevels() answers per-location from the real rows.
+    'inventory' => [
+        'model' => env('CHATTRN_INVENTORY_MODEL'), // e.g. App\Models\Inventory
+        'columns' => [
+            'product_id' => 'product_id',
+            'location_id' => 'outlet_id',
+            'price' => 'price',
+            'stock' => 'quantity',
+        ],
     ],
 
     // Column overrides, only needed where a model's column name isn't already the canonical
@@ -67,6 +90,15 @@ return [
         'customer' => [
             'phone' => 'phone',
             'email' => 'email',
+        ],
+        // Only used when an Order model has an items()/lineItems() relation. 'title'/'sku'
+        // fall back to the line item's related product (via a product() relation on that
+        // model) when the column below is null or the line item table has no such column.
+        'order_item' => [
+            'title' => 'title',
+            'price' => 'price',
+            'quantity' => 'quantity',
+            'sku' => 'sku',
         ],
     ],
 ];

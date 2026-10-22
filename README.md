@@ -49,6 +49,23 @@ This is a best-effort mapping, not a full ORM introspection tool:
 Column names that don't already match the canonical ones (`price`, `stock`, `title`, ...) are
 set in `config/chattrn.php`'s `columns` array; `chattrn:map` writes the common ones for you.
 
+## Price/stock that vary by outlet (delivery_mode=outlet)
+
+If your store prices or stocks products differently per physical outlet/location rather than
+having one flat `price`/`stock` column on the product (or variant) row, set
+`config('chattrn.inventory.model')` to your inventory-style model (one row per
+product+location), with `inventory.columns` pointing at its `product_id`/`location_id`/`price`/
+`stock` columns — `chattrn:map` asks about this and writes it for you. Also map
+`config('chattrn.models.location')` to your Outlet/Location model so `locations.json` returns
+real rows instead of a single placeholder, and set `CHATTRN_PRIMARY_LOCATION_ID` in `.env` to
+the location whose price/stock should answer `products.json` before Chattrn has asked the
+customer which outlet/zone they're in (left unset, the first active location is used).
+Per-location figures Chattrn asks for once it knows the customer's outlet are then served for
+real from `inventory_levels.json`.
+
+A store with flat price/stock (no outlets, `delivery_mode=zone`) leaves `inventory.model` unset
+and none of this applies — behavior is unchanged from before.
+
 ## Testing this package
 
 This repo's sandbox has no access to `packagist.org` or the GitHub API (both blocked by its
