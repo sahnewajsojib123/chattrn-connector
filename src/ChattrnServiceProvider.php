@@ -6,6 +6,7 @@ use Illuminate\Support\ServiceProvider;
 use Chattrn\Connector\Console\Commands\InstallCommand;
 use Chattrn\Connector\Console\Commands\MapCommand;
 use Chattrn\Connector\Console\Commands\CheckCommand;
+use Chattrn\Connector\Console\Commands\RegisterCommand;
 
 class ChattrnServiceProvider extends ServiceProvider
 {
@@ -27,6 +28,7 @@ class ChattrnServiceProvider extends ServiceProvider
                 InstallCommand::class,
                 MapCommand::class,
                 CheckCommand::class,
+                RegisterCommand::class,
             ]);
         }
     }
