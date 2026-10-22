@@ -13,23 +13,42 @@ php artisan chattrn:install
 ```
 
 Paste the `CHATTRN_TOKEN=ct_live_...` line from the **Install package** screen into `.env`,
-then:
+then map your models either from the terminal:
 
 ```bash
 php artisan chattrn:map
 ```
 
-This asks which Eloquent models are your Product, Variant, Order and Customer, which columns
-hold price and stock, writes `config/chattrn.php`, and registers with Chattrn — which replies
-with the ongoing `CHATTRN_ACCESS_TOKEN` to add to `.env` (remove `CHATTRN_TOKEN` once you have
-it; it's single-use).
+or from a browser, if your host doesn't give you shell/SSH access (Render's free tier, for
+example):
+
+```
+https://your-store.com/chattrn/setup/map?token=YOUR_CHATTRN_TOKEN
+```
+
+Both ask which Eloquent models are your Product, Variant, Order and Customer and which columns
+hold price and stock — pre-filled with best guesses from your actual tables (`chattrn:map`
+fills in the terminal prompt's default; the browser screen pre-fills the form), so most of the
+time it's "confirm the guess," not "type it from memory." The mapping is saved to a
+`chattrn_settings` database table (migrated automatically the first time you run
+`php artisan migrate`), not to `config/chattrn.php` — so a later change, from either entry
+point, takes effect immediately with no git commit or redeploy. Only secrets
+(`CHATTRN_ACCESS_TOKEN`, `CHATTRN_TOKEN`, `CHATTRN_BACKEND_URL`) and `APP_URL`/`APP_NAME` stay
+in `.env`, same as any other Laravel secret.
+
+The first `chattrn:map` run (or the first save from `/chattrn/setup/map`) also registers with
+Chattrn, which replies with the ongoing `CHATTRN_ACCESS_TOKEN` to add to `.env` (remove
+`CHATTRN_TOKEN` once you have it; it's single-use).
 
 ```bash
 php artisan chattrn:check
 ```
 
 Runs a handful of local contract checks (store profile, catalog, locations, orders, and that a
-wrong token is refused) against your own app.
+wrong token is refused) against your own app. If your host blocks shell access, use
+`/chattrn/setup/map/preview?token=...` instead — it runs your actual mapping against one real
+product and one real order and shows the resulting JSON, so you can sanity-check it from a
+browser too.
 
 ## What it assumes about your models
 

@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use Chattrn\Connector\Http\Controllers\ChattrnApiController;
+use Chattrn\Connector\Http\Controllers\ChattrnMapController;
 use Chattrn\Connector\Http\Controllers\ChattrnSetupController;
 use Chattrn\Connector\Http\Middleware\VerifyChattrnToken;
 
@@ -9,6 +10,12 @@ use Chattrn\Connector\Http\Middleware\VerifyChattrnToken;
 // value as CHATTRN_TOKEN in .env) to register without shell/SSH/one-off-job access. See
 // ChattrnSetupController. Not part of the Chattrn-facing API contract below.
 Route::get('chattrn/setup/register', [ChattrnSetupController::class, 'register']);
+
+// Browser-based model/column mapping, saved to the chattrn_settings table (live - no
+// redeploy). Same token gate as setup/register above. See ChattrnMapController.
+Route::get('chattrn/setup/map', [ChattrnMapController::class, 'show']);
+Route::post('chattrn/setup/map', [ChattrnMapController::class, 'save']);
+Route::get('chattrn/setup/map/preview', [ChattrnMapController::class, 'preview']);
 
 // See public/openapi.yaml in chattrn-backend for the full contract these paths implement.
 Route::prefix(ltrim(config('chattrn.route_prefix', '/chattrn/api/2026-10'), '/'))
