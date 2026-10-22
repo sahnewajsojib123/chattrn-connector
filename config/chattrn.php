@@ -18,7 +18,7 @@ return [
     // The one-time setup token pasted into .env from the Install package screen. Only read
     // once, by `php artisan chattrn:map` (or on boot if access_token is still empty), then
     // it should be removed from .env.
-    'connection_token' => env('CHATTRN_TOKEN'),
+    'connection_token' => trim((string) env('CHATTRN_TOKEN', '')) ?: null,
 
     'store' => [
         'name' => env('APP_NAME', 'My Store'),

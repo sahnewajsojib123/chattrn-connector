@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Http;
 // of this contract is chattrn-backend/src/server.js's POST /package/register.
 class ChattrnRegistrar
 {
-    public const PACKAGE_VERSION = '1.0.7';
+    public const PACKAGE_VERSION = '1.0.8';
 
     // Returns ['ok' => true, 'access_token' => ...] or ['ok' => false, 'message' => ...].
     public static function register(string $connectionToken): array

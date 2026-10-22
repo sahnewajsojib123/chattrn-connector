@@ -15,8 +15,30 @@ use Chattrn\Connector\Support\ChattrnRegistrar;
 // whoever has the Install package screen open.
 class ChattrnSetupController extends Controller
 {
+    // Visit .../chattrn/setup/register?debug=1 (no token needed) to see, without exposing any
+    // secret value, whether the host's environment and Laravel's cached config actually agree
+    // on CHATTRN_TOKEN - the fastest way to tell a stale config:cache apart from an env var
+    // that never reached the running container, on a host with no shell/SSH access.
     public function register(Request $request): JsonResponse
     {
+        if ($request->query('debug') === '1') {
+            $rawEnv = getenv('CHATTRN_TOKEN');
+
+            return response()->json([
+                'ok' => true,
+                'diagnostics' => [
+                    'getenv_CHATTRN_TOKEN_present' => $rawEnv !== false && $rawEnv !== '',
+                    'getenv_CHATTRN_TOKEN_length' => $rawEnv !== false ? strlen($rawEnv) : 0,
+                    'config_connection_token_present' => (bool) config('chattrn.connection_token'),
+                    'config_connection_token_length' => strlen((string) config('chattrn.connection_token')),
+                    'config_access_token_present' => (bool) config('chattrn.access_token'),
+                    'config_is_cached' => app()->configurationIsCached(),
+                    'app_env' => config('app.env'),
+                    'package_version' => \Chattrn\Connector\Support\ChattrnRegistrar::PACKAGE_VERSION,
+                ],
+            ]);
+        }
+
         if (config('chattrn.access_token')) {
             return response()->json(['ok' => true, 'message' => 'Already registered (CHATTRN_ACCESS_TOKEN is already set).']);
         }
