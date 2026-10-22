@@ -254,6 +254,7 @@ class ModelMap
             'line_items' => $lineItems->map(fn ($li) => [
                 'id' => $li->getKey(),
                 'title' => self::lineItemTitle($li),
+                'variant_title' => self::get($li, self::col('order_item', 'variant_title', 'variant_title')),
                 'quantity' => self::get($li, self::col('order_item', 'quantity', 'quantity'), 1),
                 'price' => self::money(self::get($li, self::col('order_item', 'price', 'price'), 0)),
                 'sku' => self::lineItemSku($li),

@@ -116,6 +116,9 @@ return [
             'price' => 'price',
             'quantity' => 'quantity',
             'sku' => 'sku',
+            // Optional: a stored variant name/options snapshot on the line item itself
+            // (e.g. "Red / Large"), kept separate from 'title' (the product name).
+            'variant_title' => null,
         ],
     ],
 ];

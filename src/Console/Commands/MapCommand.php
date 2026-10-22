@@ -69,6 +69,10 @@ class MapCommand extends Command
             $config['columns']['order_item']['sku'] = $skuCol ?: $config['columns']['order_item']['sku'];
         }
 
+        if ($config['models']['variant'] && $this->confirm('Do line items store a variant name/options snapshot (e.g. "Red / Large"), separate from the product title?', (bool) $config['columns']['order_item']['variant_title'])) {
+            $config['columns']['order_item']['variant_title'] = $this->ask('Column that holds the variant title/name on line items', $config['columns']['order_item']['variant_title'] ?: 'variant_name');
+        }
+
         if (! ConfigWriter::write(config_path('chattrn.php'), $config)) {
             $this->error('Could not write config/chattrn.php - check it is writable.');
             return self::FAILURE;
