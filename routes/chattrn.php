@@ -2,7 +2,13 @@
 
 use Illuminate\Support\Facades\Route;
 use Chattrn\Connector\Http\Controllers\ChattrnApiController;
+use Chattrn\Connector\Http\Controllers\ChattrnSetupController;
 use Chattrn\Connector\Http\Middleware\VerifyChattrnToken;
+
+// Visit https://your-store.com/chattrn/setup/register?token=YOUR_CHATTRN_TOKEN once (same
+// value as CHATTRN_TOKEN in .env) to register without shell/SSH/one-off-job access. See
+// ChattrnSetupController. Not part of the Chattrn-facing API contract below.
+Route::get('chattrn/setup/register', [ChattrnSetupController::class, 'register']);
 
 // See public/openapi.yaml in chattrn-backend for the full contract these paths implement.
 Route::prefix(ltrim(config('chattrn.route_prefix', '/chattrn/api/2026-10'), '/'))
