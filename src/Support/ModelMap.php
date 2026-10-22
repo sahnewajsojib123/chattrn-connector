@@ -78,30 +78,35 @@ class ModelMap
     {
         $priceCol = self::col('variant', 'price', 'price');
         $stockCol = self::col('variant', 'stock', 'stock');
+        $invCols = config('chattrn.inventory.columns', []);
 
         // A store whose price/stock vary by location (config('chattrn.inventory.model') set)
-        // reads the catalog figure from the inventory row at the primary/given location
-        // instead of a flat column on the variant row. See inventoryLevels() for the
-        // per-location figures Chattrn asks for once it knows the customer's outlet.
-        $inv = self::inventoryRow($product ?? $variant, $locationId);
+        // reads the catalog figure from the inventory row at the primary/given location,
+        // matched by variant id too when inventory is split per-variant (inventory.columns.
+        // variant_id set), instead of a flat column on the variant row. See inventoryLevels()
+        // for the per-location figures Chattrn asks for once it knows the customer's outlet.
+        $inv = self::inventoryRow($product ?? $variant, $variant, $locationId);
         if ($inv) {
-            $invCols = config('chattrn.inventory.columns', []);
             $price = self::get($inv, $invCols['price'] ?? 'price');
             $stock = self::get($inv, $invCols['stock'] ?? 'stock');
+            $compareAt = ($invCols['compare_price'] ?? null) ? self::get($inv, $invCols['compare_price']) : null;
         } else {
             $price = self::get($variant, $priceCol);
             $stock = self::get($variant, $stockCol);
+            $compareAt = self::get($variant, self::col('variant', 'compare_at_price', 'compare_at_price'));
         }
+
+        [$option1, $option2, $option3] = self::variantOptions($variant);
 
         return [
             'id' => $variant->getKey(),
             'product_id' => $product?->getKey() ?? self::get($variant, 'product_id'),
             'title' => self::get($variant, self::col('variant', 'title', 'title'), 'Default'),
-            'option1' => self::get($variant, 'option1'),
-            'option2' => self::get($variant, 'option2'),
-            'option3' => self::get($variant, 'option3'),
+            'option1' => $option1,
+            'option2' => $option2,
+            'option3' => $option3,
             'price' => self::money($price),
-            'compare_at_price' => self::moneyOrNull(self::get($variant, self::col('variant', 'compare_at_price', 'compare_at_price'))),
+            'compare_at_price' => self::moneyOrNull($compareAt),
             'sku' => self::get($variant, self::col('variant', 'sku', 'sku')),
             'barcode' => self::get($variant, 'barcode'),
             'inventory_item_id' => $variant->getKey(),
@@ -109,6 +114,22 @@ class ModelMap
             'inventory_management' => $stock === null ? null : 'chattrn',
             'inventory_policy' => 'deny',
         ];
+    }
+
+    // Reads option1/option2/option3 straight off the variant row by default. If
+    // columns.variant.options_json is set, decodes that column (a JSON object like
+    // {"color":"Red","size":"M"}, a JSON array, or an already-cast PHP array) into up to
+    // three positional option values instead.
+    private static function variantOptions(Model $variant): array
+    {
+        $jsonCol = config('chattrn.columns.variant.options_json');
+        if (! $jsonCol) {
+            return [self::get($variant, 'option1'), self::get($variant, 'option2'), self::get($variant, 'option3')];
+        }
+        $raw = self::get($variant, $jsonCol);
+        $decoded = is_array($raw) ? $raw : (is_string($raw) ? json_decode($raw, true) : null);
+        $values = is_array($decoded) ? array_values($decoded) : [];
+        return [$values[0] ?? null, $values[1] ?? null, $values[2] ?? null];
     }
 
     // ---- Per-location inventory (optional; see config('chattrn.inventory')) ----
@@ -136,7 +157,10 @@ class ModelMap
         return null;
     }
 
-    private static function inventoryRow(?Model $product, $locationId = null)
+    // $variant is the real variant row when the store has a separate Variant model; pass the
+    // same object as $product (or null) for a store with no variants, where price/stock are
+    // keyed by product only.
+    private static function inventoryRow(?Model $product, ?Model $variant = null, $locationId = null)
     {
         $class = self::inventoryModelClass();
         if (! $class || ! $product) {
@@ -144,10 +168,14 @@ class ModelMap
         }
         $cols = config('chattrn.inventory.columns', []);
         $productCol = $cols['product_id'] ?? 'product_id';
+        $variantCol = $cols['variant_id'] ?? null;
         $locationCol = $cols['location_id'] ?? 'location_id';
         $locationId = $locationId ?? self::primaryLocationId();
 
         $query = $class::query()->where($productCol, $product->getKey());
+        if ($variantCol && $variant && $variant !== $product) {
+            $query->where($variantCol, $variant->getKey());
+        }
         if ($locationId !== null) {
             $query->where($locationCol, $locationId);
         }

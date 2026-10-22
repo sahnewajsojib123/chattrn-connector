@@ -126,16 +126,21 @@ class ChattrnApiController extends Controller
         if ($invClass) {
             $cols = config('chattrn.inventory.columns', []);
             $productCol = $cols['product_id'] ?? 'product_id';
+            $variantCol = $cols['variant_id'] ?? null;
             $locationCol = $cols['location_id'] ?? 'location_id';
             $stockCol = $cols['stock'] ?? 'stock';
+            // inventory_item_id is the variant id for a store with inventory split per-variant
+            // (inventory.columns.variant_id set), otherwise the product id - matching how
+            // ModelMap::toVariant sets it on each variant.
+            $itemIdCol = $variantCol ?: $productCol;
 
-            $query = $invClass::query()->whereIn($productCol, $itemIds);
+            $query = $invClass::query()->whereIn($itemIdCol, $itemIds);
             if ($locationIds) {
                 $query->whereIn($locationCol, $locationIds);
             }
             $rows = $query->get();
             return $this->version(response()->json(['inventory_levels' => $rows->map(fn ($row) => [
-                'inventory_item_id' => $row->{$productCol}, 'location_id' => $row->{$locationCol},
+                'inventory_item_id' => $row->{$itemIdCol}, 'location_id' => $row->{$locationCol},
                 'available' => $row->{$stockCol} ?? null, 'updated_at' => optional($row->updated_at)->toIso8601String(),
             ])->values()->all()]));
         }

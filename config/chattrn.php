@@ -56,9 +56,15 @@ return [
         'model' => env('CHATTRN_INVENTORY_MODEL'), // e.g. App\Models\Inventory
         'columns' => [
             'product_id' => 'product_id',
+            // Only set this if inventory is also split per-variant (unique per variant+
+            // outlet), not just per-product+outlet. Leave null when a store has no Variant
+            // model, or variants share the same stock/price. When set, inventory_levels.json
+            // and the catalog price/stock are matched by variant id instead of product id.
+            'variant_id' => null,
             'location_id' => 'outlet_id',
             'price' => 'price',
             'stock' => 'quantity',
+            'compare_price' => null, // e.g. 'compare_price', blank if no compare-at price
         ],
     ],
 
@@ -78,6 +84,11 @@ return [
             'compare_at_price' => null,
             'sku' => 'sku',
             'stock' => 'stock',
+            // Blank if the Variant model has separate option1/option2/option3-style columns
+            // (read directly, unchanged). Set this to a column holding options as JSON (an
+            // object like {"color":"Red","size":"M"} or a plain array) to have it decoded
+            // into option1/option2/option3 instead.
+            'options_json' => null,
         ],
         'order' => [
             'number' => 'number',
