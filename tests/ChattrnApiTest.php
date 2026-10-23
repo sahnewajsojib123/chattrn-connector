@@ -19,7 +19,14 @@ class ChattrnApiTest extends TestCase
 
     protected function defineEnvironment($app)
     {
-        if ($driver = getenv('TEST_DB_CONNECTION')) {
+        $driver = getenv('TEST_DB_CONNECTION') ?: 'sqlite';
+        if ($driver === 'sqlite') {
+            $app['config']->set('database.default', 'testing');
+            $app['config']->set('database.connections.testing', [
+                'driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '',
+                'foreign_key_constraints' => true,
+            ]);
+        } else {
             $app['config']->set('database.default', 'testing');
             $app['config']->set('database.connections.testing', [
                 'driver' => $driver, 'host' => '127.0.0.1',

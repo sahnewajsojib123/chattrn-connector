@@ -153,7 +153,13 @@ by this workflow. Configure Packagist's repository webhook separately if using P
 Applications should install a released constraint (for example `^1.3` after v1.3.0 is available)
 and commit the application's composer.lock, rather than tracking dev-main in production.
 
-CI covers Laravel 10/11/12/13 through their Testbench versions and PHP 8.1–8.5 combinations,
+Release CI covers security-supported Laravel 12/13 through their Testbench versions and PHP 8.2–8.5 combinations,
 plus Laravel 13 jobs on disposable PostgreSQL and MySQL databases. These are configured
 checks; only the combinations actually executed locally or on GitHub are verified results.
 No CI database credentials are production secrets.
+
+Laravel 10/11 remain in the existing runtime dependency constraints for legacy consumers,
+but are outside the release CI support guarantee: Composer blocks their test frameworks
+for known security advisories. Upgrade those stores to a security-supported Laravel
+release before using this connector in production. CI never disables advisory blocking.
+SQLite jobs explicitly use an isolated in-memory database.
