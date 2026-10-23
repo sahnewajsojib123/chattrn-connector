@@ -28,7 +28,7 @@ class RegisterCommand extends Command
         }
 
         $this->line('Registering with Chattrn...');
-        $result = ChattrnRegistrar::register($token);
+        $result = ChattrnRegistrar::register($token, fn ($message) => $this->line($message));
         if (! $result['ok']) {
             $this->error('Register failed: ' . $result['message']);
             return self::FAILURE;

@@ -10,17 +10,17 @@ use Illuminate\Support\Facades\Http;
 // of this contract is chattrn-backend/src/server.js's POST /package/register.
 class ChattrnRegistrar
 {
-    public const PACKAGE_VERSION = '1.2.1';
+    public const PACKAGE_VERSION = '1.2.2';
 
     // Returns ['ok' => true, 'access_token' => ...] or ['ok' => false, 'message' => ...].
-    public static function register(string $connectionToken): array
+    public static function register(string $connectionToken, ?callable $progress = null): array
     {
-        return \Illuminate\Support\Facades\Cache::lock('chattrn.registration', 30)->block(15, function () use ($connectionToken) {
-            return self::exchange($connectionToken);
+        return \Illuminate\Support\Facades\Cache::lock('chattrn.registration', 75)->block(15, function () use ($connectionToken, $progress) {
+            return self::exchange($connectionToken, $progress);
         });
     }
 
-    private static function exchange(string $connectionToken): array
+    private static function exchange(string $connectionToken, ?callable $progress): array
     {
         $hash = hash('sha256', $connectionToken);
         $saved = Settings::tableExists() ? \Illuminate\Support\Facades\DB::table('chattrn_settings')->where('key', '_registration_attempt')->value('value') : null;
@@ -44,7 +44,20 @@ class ChattrnRegistrar
         $siteUrl = rtrim((string) (config('chattrn.store.domain') ?? config('app.url')), '/');
 
         try {
-            $response = Http::timeout(10)->post("{$backend}/package/register", [
+            $retry = 0;
+            $response = Http::connectTimeout(5)->timeout(12)->acceptJson()->retry(
+                [1000, 2000, 4000],
+                0,
+                function ($error) use (&$retry, $progress) {
+                    $transient = $error instanceof \Illuminate\Http\Client\ConnectionException ||
+                        ($error instanceof \Illuminate\Http\Client\RequestException && in_array($error->response->status(), [429, 502, 503, 504], true));
+                    if ($transient && $progress && $retry < 3) {
+                        $progress('Chattrn is temporarily unavailable. Retrying pairing (attempt '.(++$retry + 1).' of 4); keep the same setup token.');
+                    }
+                    return $transient;
+                },
+                throw: false,
+            )->post("{$backend}/package/register", [
                 'token' => $connectionToken,
                 'registration_id' => $attempt['id'],
                 'site_url' => $siteUrl,
@@ -60,12 +73,17 @@ class ChattrnRegistrar
             ]);
 
         } catch (\Illuminate\Http\Client\ConnectionException $e) {
-            return ['ok' => false, 'message' => 'Could not reach Chattrn. Check CHATTRN_BACKEND_URL and try again.'];
+            return ['ok' => false, 'message' => 'Chattrn could not be reached after bounded retries. Check CHATTRN_BACKEND_URL and retry with the same setup token before expiry.'];
         }
 
         if (! $response->successful()) {
-            $message = $response->json('error.message') ?? $response->json('errors') ?? $response->body();
-            return ['ok' => false, 'message' => is_string($message) ? $message : 'Register call failed.'];
+            $message = match ($response->status()) {
+                401, 403 => 'Setup token was rejected. Check the token or generate a fresh reconnect token in Chattrn.',
+                410 => 'Setup token expired. Generate a fresh setup token in Chattrn and redeploy.',
+                429, 502, 503, 504 => 'Chattrn is still temporarily unavailable after retries. Retry with the same setup token before expiry.',
+                default => 'Pairing failed (HTTP '.$response->status().'). Check the public Chattrn backend URL and retry.',
+            };
+            return ['ok' => false, 'message' => $message];
         }
 
         $token = $response->json('access_token');

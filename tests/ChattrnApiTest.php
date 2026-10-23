@@ -329,4 +329,62 @@ class ChattrnApiTest extends TestCase
             ->assertOk()->assertJsonPath('product.variants.0.price', '0.00');
     }
 
+    public function test_discovery_is_public_and_contains_no_credentials_or_schema(): void
+    {
+        $response = $this->getJson('/.well-known/chattrn.json')->assertOk()
+            ->assertJsonPath('package', 'chattrn/connector')->assertJsonPath('framework', 'Laravel')
+            ->assertJsonPath('api_path', '/chattrn/api/2026-10');
+        $this->assertStringContainsString('no-store', $response->headers->get('Cache-Control'));
+        $this->assertStringNotContainsString('test-token', $response->getContent());
+        $this->assertArrayNotHasKey('models', $response->json());
+    }
+
+    public function test_pairing_retries_transient_failures_with_the_same_exchange_id(): void
+    {
+        $this->artisan('migrate', ['--force' => true])->assertSuccessful();
+        config(['chattrn.access_token' => null, 'chattrn.backend_url' => 'https://backend.test']);
+        \Illuminate\Support\Sleep::fake();
+        \Illuminate\Support\Facades\Http::fakeSequence()->push('<html>gateway</html>', 502)->push([], 503)->push(['access_token' => 'recovered']);
+        $messages = [];
+        $result = \Chattrn\Connector\Support\ChattrnRegistrar::register('setup-sensitive-audit-value', function ($message) use (&$messages) { $messages[] = $message; });
+        $this->assertTrue($result['ok']);
+        \Illuminate\Support\Facades\Http::assertSentCount(3);
+        $ids = \Illuminate\Support\Facades\Http::recorded()->map(fn ($pair) => $pair[0]['registration_id'])->unique();
+        $this->assertCount(1, $ids);
+        $this->assertCount(2, $messages);
+        $this->assertStringNotContainsString('setup-sensitive-audit-value', implode(' ', $messages));
+    }
+
+    public function test_pairing_retries_are_bounded_and_do_not_retry_auth_failures(): void
+    {
+        $this->artisan('migrate', ['--force' => true])->assertSuccessful();
+        config(['chattrn.access_token' => null, 'chattrn.backend_url' => 'https://backend.test']);
+        \Illuminate\Support\Sleep::fake();
+        $status = 503;
+        \Illuminate\Support\Facades\Http::fake(function () use (&$status) { return \Illuminate\Support\Facades\Http::response('<html>PRIVATE RESPONSE</html>', $status); });
+        $result = \Chattrn\Connector\Support\ChattrnRegistrar::register('setup');
+        $this->assertFalse($result['ok']);
+        $this->assertStringNotContainsString('PRIVATE RESPONSE', $result['message']);
+        \Illuminate\Support\Facades\Http::assertSentCount(4);
+        $sent = 4;
+        foreach ([401, 403, 410, 422] as $status) {
+            $this->assertFalse(\Chattrn\Connector\Support\ChattrnRegistrar::register('setup-'.$status)['ok']);
+            \Illuminate\Support\Facades\Http::assertSentCount(++$sent);
+        }
+    }
+
+    public function test_connection_failure_exhausts_retries_without_replacing_working_credentials(): void
+    {
+        $this->artisan('migrate', ['--force' => true])->assertSuccessful();
+        config(['chattrn.backend_url' => 'https://backend.test']);
+        \Chattrn\Connector\Support\Credentials::save('existing-key');
+        \Illuminate\Support\Sleep::fake();
+        \Illuminate\Support\Facades\Http::fakeSequence()
+            ->pushFailedConnection()->pushFailedConnection()->pushFailedConnection()->pushFailedConnection();
+        $result = \Chattrn\Connector\Support\ChattrnRegistrar::register('new-setup');
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('bounded retries', $result['message']);
+        $this->assertSame('existing-key', \Chattrn\Connector\Support\Credentials::token());
+    }
+
 }

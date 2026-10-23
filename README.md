@@ -117,3 +117,23 @@ Generating a reconnect setup token keeps the existing connection active until th
 The package persists an exchange ID before calling the backend, so an interrupted exchange can be retried
 with the same setup token before its 30-minute expiry. A new setup token explicitly starts a new exchange.
 Deploy the corresponding CN-API backend update before this package update.
+
+
+## Pairing retries and public discovery (1.2.2)
+
+Pairing makes at most four attempts for connection failures and HTTP 429/502/503/504,
+using the same persisted exchange ID. Backoff is 1, 2 and 4 seconds; each request has a
+12-second timeout and 5-second connection timeout. CLI output identifies retry progress.
+Authentication, validation and expired-token responses are not retried. Exhausted retries
+keep existing credentials and tell the operator to retry the same setup token before expiry.
+Response HTML and secrets are never copied into pairing failure messages.
+
+`GET /.well-known/chattrn.json` is a public, read-only discovery endpoint. It returns the
+package name/version, Laravel marker, configured API path/version and supported setup features.
+It does not expose tokens, pairing state, database schema, mappings or store/customer records.
+It must remain publicly reachable for automatic discovery; protected API routes stay authenticated.
+
+Chattrn's updated dashboard saves allowlisted onboarding settings and mapping choices as drafts.
+Browser credentials and diagnostic samples are excluded. Before a connection is created, the draft
+is browser-only; afterward it can also be backed up to Chattrn's configured database. Existing
+credentials stay encrypted on the server and are never restored into browser fields.
