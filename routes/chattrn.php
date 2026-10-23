@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use Chattrn\Connector\Http\Controllers\ChattrnApiController;
 use Chattrn\Connector\Http\Controllers\ChattrnMapController;
 use Chattrn\Connector\Http\Controllers\ChattrnSetupController;
+use Chattrn\Connector\Http\Controllers\ChattrnVerifyController;
 use Chattrn\Connector\Http\Middleware\VerifyChattrnToken;
 
 // Visit https://your-store.com/chattrn/setup/register?token=YOUR_CHATTRN_TOKEN once (same
@@ -16,6 +17,11 @@ Route::get('chattrn/setup/register', [ChattrnSetupController::class, 'register']
 Route::get('chattrn/setup/map', [ChattrnMapController::class, 'show']);
 Route::post('chattrn/setup/map', [ChattrnMapController::class, 'save']);
 Route::get('chattrn/setup/map/preview', [ChattrnMapController::class, 'preview']);
+
+// Step 3 of the same flow - pulls real rows through the saved mapping and reports what
+// Chattrn will actually see. Gated by CHATTRN_ACCESS_TOKEN (registration must already have
+// succeeded to reach this step). See ChattrnVerifyController.
+Route::get('chattrn/setup/verify', [ChattrnVerifyController::class, 'show']);
 
 // See public/openapi.yaml in chattrn-backend for the full contract these paths implement.
 Route::prefix(ltrim(config('chattrn.route_prefix', '/chattrn/api/2026-10'), '/'))

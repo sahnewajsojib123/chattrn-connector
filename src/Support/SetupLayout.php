@@ -76,7 +76,7 @@ h1 { font: 600 22px/34px Inter, sans-serif; color: var(--ink); margin: 0 0 .35re
 .step.done { border: 1px solid var(--line); }
 .step .num { width: 26px; height: 26px; border-radius: 13px; display: flex; align-items: center; justify-content: center; flex: none; background: #fff; border: 1.5px solid #e7ebee; font: 600 13px/20px Inter, sans-serif; color: var(--ink-soft); }
 .step.active .num { background: var(--accent); border-color: var(--accent); color: #fff; }
-.step.done .num { background: var(--ok-bg); border-color: var(--ok-bg); color: var(--ok-ink); }
+.step.done .num { background: var(--ok-ink); border-color: var(--ok-ink); color: #fff; }
 .step .label p { margin: 0; }
 .step .label strong { display: block; font: 600 14px/20px Inter, sans-serif; color: var(--ink); }
 .step .label span { font: 400 12px/18px Inter, sans-serif; color: var(--ink-soft); }
@@ -151,6 +151,37 @@ button:hover, .btn:hover { background: var(--accent-hover); }
 .btn-secondary:hover { background: #e2e6ea; }
 .btn-disabled, .btn-disabled:hover { background: var(--neutral-bg); color: var(--ink-faint); cursor: not-allowed; }
 
+/* Verify screen: connected strip, pass/warn check rows, sample-products table. */
+.connected-banner { background: var(--ok-bg); border: 1px solid var(--line); border-radius: 10px; padding: 16px 24px; display: flex; gap: 14px; align-items: center; }
+.connected-banner .dot { width: 36px; height: 36px; border-radius: 18px; background: var(--ok-ink); display: flex; align-items: center; justify-content: center; flex: none; }
+.connected-banner .titles { flex: 1 0 0; min-width: 0; }
+.connected-banner .titles p { margin: 0; }
+.connected-banner .titles .t { font: 600 16px/24px Inter, sans-serif; color: var(--ink); }
+.connected-banner .titles .d { font: 400 13px/20px Inter, sans-serif; color: var(--ink-soft); }
+.connected-banner .checked { margin: 0; font: 400 12px/18px Inter, sans-serif; color: var(--ink-soft); flex: none; }
+.connected-banner button { background: #1c8274; }
+.connected-banner button:hover { background: var(--ok-ink); }
+
+.check-row { display: flex; gap: 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); }
+.check-row .icon { flex: none; width: 24px; height: 24px; }
+.check-row .body { flex: 1 0 0; min-width: 0; }
+.check-row .body .t { margin: 0; font: 600 14px/20px Inter, sans-serif; color: var(--ink); }
+.check-row .body .d { margin: 0; font: 400 13px/20px Inter, sans-serif; color: var(--ink-soft); }
+.check-row > a { font: 500 13px/20px Inter, sans-serif; color: var(--accent); flex: none; }
+
+.tagbadge { flex: none; display: inline-flex; align-items: center; padding: 2px 6px; border-radius: 6px; font: 500 11px/16px Inter, sans-serif; text-transform: uppercase; white-space: nowrap; }
+.tagbadge-pass { background: var(--ok-bg); color: var(--ok-ink); }
+.tagbadge-warn { background: var(--warn-bg); color: #e98b00; }
+.tagbadge-na { background: var(--bg); color: var(--ink); }
+.tagbadge-err { background: #fff0f0; color: #d31b1b; text-transform: none; }
+
+table.sample { width: 100%; border-collapse: collapse; }
+table.sample th { text-align: left; font: 500 12px/18px Inter, sans-serif; color: var(--ink); padding: 10px 16px; }
+table.sample td { padding: 10px 16px; border-top: 1px solid var(--line); font: 400 13px/20px Inter, sans-serif; color: var(--ink); vertical-align: middle; }
+table.sample .thumb { width: 36px; height: 36px; border-radius: 6px; background: var(--bg); display: inline-block; }
+table.sample .pname { font: 600 13px/20px Inter, sans-serif; color: var(--ink); }
+table.sample .pprice { font: 600 13px/20px Inter, sans-serif; color: var(--ink); }
+
 .footer-bar { border-top: 1px solid var(--line); display: flex; justify-content: center; padding: 16px 24px; gap: 12px; }
 
 .banner { border-radius: 10px; padding: .85rem 1rem; margin-bottom: 1.25rem; font-size: .9rem; }
@@ -196,14 +227,24 @@ HTML;
     // The 3-step Connect / Map your tables / Verify stepper shown at the top of every setup
     // screen. $active is 1-based; steps before it render as "done" (green check-style
     // number), the active one is purple, later ones stay neutral.
-    public static function stepper(int $active): string
+    // $checkmarks matches the Figma frames exactly: the Verify screen shows its two earlier
+    // steps as solid-green checkmark circles (step 1 "Token exchanged", step 2 "Mapping
+    // saved"), but the Map screen's own step 1 stays a plain neutral number with just the
+    // "Token exchanged" caption swapped in - no checkmark there. Pass false on any screen
+    // that should render completed steps the second, plainer way.
+    public static function stepper(int $active, bool $checkmarks = true): string
     {
+        $doneCaptions = ['Token exchanged', 'Mapping saved'];
+        $checkIcon = '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 7.2l2.6 2.6L11 4.2" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
         $html = '<div class="stepper">';
         foreach (self::STEPS as $i => $label) {
             $n = $i + 1;
-            $state = $n === $active ? 'active' : ($n < $active ? 'done' : '');
-            $caption = $n === $active ? 'You are here' : ($n < $active ? 'Done' : ($n === $active + 1 ? 'Next' : 'Check it\'s live'));
-            $num = $n < $active ? '&#10003;' : (string) $n;
+            $isDone = $n < $active;
+            $showCheck = $isDone && $checkmarks;
+            $state = $n === $active ? 'active' : ($showCheck ? 'done' : '');
+            $caption = $n === $active ? 'You are here' : ($isDone ? ($doneCaptions[$n - 1] ?? 'Done') : ($n === $active + 1 ? 'Next' : 'Check it\'s live'));
+            $num = $showCheck ? $checkIcon : (string) $n;
             $html .= '<div class="step ' . $state . '"><div class="num">' . $num . '</div>'
                 . '<div class="label"><p><strong>' . e($label) . '</strong></p><p><span>' . e($caption) . '</span></p></div></div>';
         }

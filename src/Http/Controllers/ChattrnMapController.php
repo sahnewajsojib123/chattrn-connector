@@ -59,7 +59,10 @@ class ChattrnMapController extends Controller
 
         Settings::applyOverrides();
 
-        return $this->html($this->renderForm('Saved - changes are live now, no redeploy needed.'));
+        // "Save mapping & continue" means both - on to step 3 (Verify) once it's saved,
+        // same as Connect's "Continue: map your tables" moves on rather than re-showing
+        // itself. Settings::setMany() already failed above if the save itself failed.
+        return redirect('/chattrn/setup/verify?token=' . rawurlencode($request->query('token', '')));
     }
 
     public function preview(Request $request)
@@ -189,7 +192,7 @@ class ChattrnMapController extends Controller
         $html = '<div class="panel-head">';
         $html .= '<h1>Map your tables</h1>';
         $html .= '<p class="lede">Fields are pre-filled with best guesses from your app&rsquo;s actual tables. Fix anything wrong &mdash; changes save straight to the database, no redeploy needed.</p>';
-        $html .= SetupLayout::stepper(2);
+        $html .= SetupLayout::stepper(2, false);
         $html .= '</div>';
 
         $html .= '<div class="panel-body">';
