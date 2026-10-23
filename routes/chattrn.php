@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use Chattrn\Connector\Http\Controllers\ChattrnApiController;
 use Chattrn\Connector\Http\Controllers\ChattrnMapController;
+use Chattrn\Connector\Http\Controllers\ChattrnMappingController;
 use Chattrn\Connector\Http\Controllers\ChattrnSetupController;
 use Chattrn\Connector\Http\Controllers\ChattrnVerifyController;
 use Chattrn\Connector\Http\Middleware\VerifyChattrnToken;
@@ -28,6 +29,11 @@ Route::prefix(ltrim(config('chattrn.route_prefix', '/chattrn/api/2026-10'), '/')
     ->middleware([VerifyChattrnToken::class])
     ->group(function () {
         Route::get('store.json', [ChattrnApiController::class, 'store']);
+
+        // Read/write the model+column mapping from Chattrn's dashboard ("Map your tables",
+        // step 2). Proxied by the backend's /api/stores/:id/laravel/tables.
+        Route::get('mapping.json', [ChattrnMappingController::class, 'show']);
+        Route::put('mapping.json', [ChattrnMappingController::class, 'save']);
 
         Route::get('products.json', [ChattrnApiController::class, 'products']);
         Route::get('products/count.json', [ChattrnApiController::class, 'productsCount']);
