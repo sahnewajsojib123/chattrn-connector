@@ -163,3 +163,14 @@ but are outside the release CI support guarantee: Composer blocks their test fra
 for known security advisories. Upgrade those stores to a security-supported Laravel
 release before using this connector in production. CI never disables advisory blocking.
 SQLite jobs explicitly use an isolated in-memory database.
+
+### 1.3.1: whole-store connection and location offers
+
+The backend imports the global product catalog and reads per-location inventory
+separately; merchants do not select a customer location when pairing. When the inventory
+model exposes its configured price column, `store.capabilities.location_prices` is true and inventory-level
+responses include that row's `price` and `compare_at_price`, in addition to stock.
+Missing location values remain unconfirmed; consumers must not borrow another
+location's price. A flat Product model without a Variant model now supplies default
+location inventory as well. Flat inventory is never returned for another location ID.
+The backend's live product lookup applies the customer's location at conversation time.

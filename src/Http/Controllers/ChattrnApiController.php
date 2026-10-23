@@ -5,6 +5,7 @@ namespace Chattrn\Connector\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\Schema;
 use Chattrn\Connector\Support\ModelMap;
 
 // Serves the same contract as chattrn-backend/src/mock-chattrn-store.js, so the Node test
@@ -17,10 +18,17 @@ class ChattrnApiController extends Controller
         return $res->header('X-Chattrn-API-Version', config('chattrn.api_version'));
     }
 
+    private function locationPriceColumn(): ?string
+    {
+        $class = ModelMap::inventoryModelClass();
+        $column = config('chattrn.inventory.columns.price', 'price');
+        return $class && $column && Schema::hasColumn((new $class)->getTable(), $column) ? $column : null;
+    }
+
     public function store(Request $request): JsonResponse
     {
         $store = config('chattrn.store');
-        $hasVariant = (bool) config('chattrn.models.variant');
+        $hasVariant = (bool) (ModelMap::variantModelClass() ?: ModelMap::productModelClass());
         $hasOrder = (bool) config('chattrn.models.order');
         $hasCustomer = (bool) config('chattrn.models.customer');
 
@@ -36,6 +44,7 @@ class ChattrnApiController extends Controller
                 'products' => (bool) ModelMap::productModelClass(),
                 'product_search' => (bool) ModelMap::productModelClass(),
                 'inventory_levels' => $hasVariant,
+                'location_prices' => $this->locationPriceColumn() !== null,
                 'locations_resolve' => (bool) config('chattrn.models.location'),
                 'customers_search' => $hasCustomer,
                 'orders_read' => $hasOrder,
@@ -129,6 +138,8 @@ class ChattrnApiController extends Controller
             $variantCol = $cols['variant_id'] ?? null;
             $locationCol = $cols['location_id'] ?? 'location_id';
             $stockCol = $cols['stock'] ?? 'stock';
+            $priceCol = $this->locationPriceColumn();
+            $compareCol = $cols['compare_price'] ?? null;
             // inventory_item_id is the variant id for a store with inventory split per-variant
             // (inventory.columns.variant_id set), otherwise the product id - matching how
             // ModelMap::toVariant sets it on each variant.
@@ -141,16 +152,22 @@ class ChattrnApiController extends Controller
             $rows = $query->get();
             return $this->version(response()->json(['inventory_levels' => $rows->map(fn ($row) => [
                 'inventory_item_id' => $row->{$itemIdCol}, 'location_id' => $row->{$locationCol},
-                'available' => $row->{$stockCol} ?? null, 'updated_at' => optional($row->updated_at)->toIso8601String(),
+                'available' => $row->{$stockCol} ?? null,
+                ...($priceCol ? ['price' => $row->{$priceCol} ?? null, 'compare_at_price' => $compareCol ? ($row->{$compareCol} ?? null) : null] : []),
+                'updated_at' => optional($row->updated_at)->toIso8601String(),
             ])->values()->all()]));
         }
 
         // Flat stock on the variant/product row: single default location, as before.
-        $variantClass = ModelMap::variantModelClass();
+        $separateVariant = ModelMap::variantModelClass();
+        $variantClass = $separateVariant ?: ModelMap::productModelClass();
         if (! $variantClass || ! class_exists($variantClass)) {
             return $this->version(response()->json(['inventory_levels' => []]));
         }
-        $stockCol = config('chattrn.columns.variant.stock', 'stock');
+        if ($locationIds && ! in_array('1', $locationIds, true)) {
+            return $this->version(response()->json(['inventory_levels' => []]));
+        }
+        $stockCol = config($separateVariant ? 'chattrn.columns.variant.stock' : 'chattrn.columns.product.stock', 'stock');
         $rows = $variantClass::query()->whereKey($itemIds)->get();
         return $this->version(response()->json(['inventory_levels' => $rows->map(fn ($v) => [
             'inventory_item_id' => $v->getKey(), 'location_id' => 1, 'available' => $v->{$stockCol} ?? null,

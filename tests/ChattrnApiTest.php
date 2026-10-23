@@ -49,8 +49,10 @@ class ChattrnApiTest extends TestCase
 
         // CI database jobs use disposable service databases, never a merchant database.
         if (getenv('TEST_DB_CONNECTION')) {
-            foreach (['products', 'orders', 'chattrn_settings', 'migrations'] as $table) Schema::dropIfExists($table);
+            foreach (['test_inventory', 'customers', 'products', 'orders', 'chattrn_settings', 'migrations'] as $table) Schema::dropIfExists($table);
         }
+        // Boot can load the previous persistent test's credential before fixture cleanup.
+        config(['chattrn.access_token' => 'test-token']);
         Schema::create('products', function (Blueprint $t) {
             $t->id();
             $t->string('title');
@@ -402,6 +404,58 @@ class ChattrnApiTest extends TestCase
         $this->assertFalse($result['ok']);
         $this->assertStringContainsString('bounded retries', $result['message']);
         $this->assertSame('existing-key', \Chattrn\Connector\Support\Credentials::token());
+    }
+
+    public function test_flat_product_inventory_uses_default_location_without_a_variant_model(): void
+    {
+        config(['chattrn.models.variant' => null, 'chattrn.inventory.model' => null]);
+        $this->getJson('/chattrn/api/2026-10/store.json', $this->headers())
+            ->assertOk()->assertJsonPath('store.capabilities.inventory_levels', true);
+        $this->getJson('/chattrn/api/2026-10/inventory_levels.json?inventory_item_ids=1&location_ids=1', $this->headers())
+            ->assertOk()->assertJsonPath('inventory_levels.0.available', 10);
+        $this->getJson('/chattrn/api/2026-10/inventory_levels.json?inventory_item_ids=1&location_ids=2', $this->headers())
+            ->assertOk()->assertJsonCount(0, 'inventory_levels');
+    }
+
+    public function test_inventory_returns_only_requested_location_with_its_own_price_and_stock(): void
+    {
+        Schema::create('test_inventory', function (Blueprint $table) {
+            $table->id();
+            $table->integer('product_id');
+            $table->integer('location_id');
+            $table->decimal('price', 10, 2);
+            $table->integer('stock');
+            $table->timestamps();
+        });
+        config([
+            'chattrn.inventory.model' => \Chattrn\Connector\Tests\Fixtures\Inventory::class,
+            'chattrn.inventory.columns' => ['product_id' => 'product_id', 'location_id' => 'location_id', 'price' => 'price', 'stock' => 'stock'],
+        ]);
+        \Chattrn\Connector\Tests\Fixtures\Inventory::create(['product_id' => 1, 'location_id' => 1, 'price' => '10.00', 'stock' => 0]);
+        \Chattrn\Connector\Tests\Fixtures\Inventory::create(['product_id' => 1, 'location_id' => 2, 'price' => '20.00', 'stock' => 8]);
+        $response = $this->getJson('/chattrn/api/2026-10/inventory_levels.json?inventory_item_ids=1&location_ids=2', $this->headers());
+        $response->assertOk()->assertJsonCount(1, 'inventory_levels')
+            ->assertJsonPath('inventory_levels.0.location_id', 2)
+            ->assertJsonPath('inventory_levels.0.available', 8);
+        $this->assertEquals(20, $response->json('inventory_levels.0.price'));
+    }
+
+    public function test_stock_only_inventory_does_not_replace_store_wide_prices_with_null(): void
+    {
+        Schema::create('test_inventory', function (Blueprint $table) {
+            $table->id();
+            $table->integer('product_id');
+            $table->integer('location_id');
+            $table->integer('stock');
+            $table->timestamps();
+        });
+        config(['chattrn.inventory.model' => \Chattrn\Connector\Tests\Fixtures\Inventory::class,
+            'chattrn.inventory.columns' => ['product_id' => 'product_id', 'location_id' => 'location_id', 'stock' => 'stock', 'price' => 'price']]);
+        \Chattrn\Connector\Tests\Fixtures\Inventory::create(['product_id' => 1, 'location_id' => 2, 'stock' => 8]);
+        $this->getJson('/chattrn/api/2026-10/store.json', $this->headers())
+            ->assertOk()->assertJsonPath('store.capabilities.location_prices', false);
+        $this->getJson('/chattrn/api/2026-10/inventory_levels.json?inventory_item_ids=1&location_ids=2', $this->headers())
+            ->assertOk()->assertJsonPath('inventory_levels.0.available', 8)->assertJsonMissingPath('inventory_levels.0.price');
     }
 
 }
