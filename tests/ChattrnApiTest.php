@@ -9,10 +9,7 @@ use Chattrn\Connector\ChattrnServiceProvider;
 use Chattrn\Connector\Tests\Fixtures\Product;
 use Chattrn\Connector\Tests\Fixtures\Order;
 
-// A starting Testbench suite for this package. Not run in the sandbox this package was
-// written in (see README.md "Testing this package" - no Packagist/GitHub access there);
-// run `composer require --dev orchestra/testbench phpunit/phpunit && vendor/bin/phpunit`
-// somewhere with normal network access first.
+// Contract and recovery tests run locally and in the framework/database compatibility matrix.
 class ChattrnApiTest extends TestCase
 {
     protected function getPackageProviders($app)
@@ -22,6 +19,15 @@ class ChattrnApiTest extends TestCase
 
     protected function defineEnvironment($app)
     {
+        if ($driver = getenv('TEST_DB_CONNECTION')) {
+            $app['config']->set('database.default', 'testing');
+            $app['config']->set('database.connections.testing', [
+                'driver' => $driver, 'host' => '127.0.0.1',
+                'port' => $driver === 'pgsql' ? 5432 : 3306,
+                'database' => getenv('TEST_DB_DATABASE') ?: 'chattrn_test', 'username' => getenv('TEST_DB_USERNAME') ?: ($driver === 'pgsql' ? 'postgres' : 'root'),
+                'password' => getenv('TEST_DB_PASSWORD') !== false ? getenv('TEST_DB_PASSWORD') : 'test-only', 'charset' => 'utf8', 'prefix' => '',
+            ]);
+        }
         $app['config']->set('app.key', 'base64:' . base64_encode(str_repeat('x', 32)));
         $app['config']->set('chattrn.access_token', 'test-token');
         $app['config']->set('chattrn.models.product', Product::class);
@@ -34,6 +40,10 @@ class ChattrnApiTest extends TestCase
     {
         parent::setUp();
 
+        // CI database jobs use disposable service databases, never a merchant database.
+        if (getenv('TEST_DB_CONNECTION')) {
+            foreach (['products', 'orders', 'chattrn_settings', 'migrations'] as $table) Schema::dropIfExists($table);
+        }
         Schema::create('products', function (Blueprint $t) {
             $t->id();
             $t->string('title');

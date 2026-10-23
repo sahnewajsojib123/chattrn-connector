@@ -1,0 +1,78 @@
+name: Connector compatibility
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: connector-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {php: '8.1', testbench: '^8.0', phpunit: '^10.0', database: sqlite}
+          - {php: '8.2', testbench: '^9.0', phpunit: '^10.0', database: sqlite}
+          - {php: '8.3', testbench: '^10.0', phpunit: '^11.0', database: sqlite}
+          - {php: '8.3', testbench: '^11.0', phpunit: '^11.0', database: sqlite}
+          - {php: '8.5', testbench: '^11.0', phpunit: '^11.0', database: sqlite}
+          - {php: '8.4', testbench: '^11.0', phpunit: '^11.0', database: pgsql}
+          - {php: '8.4', testbench: '^11.0', phpunit: '^11.0', database: mysql}
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: chattrn_test
+          POSTGRES_PASSWORD: test-only
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: chattrn_test
+          MYSQL_ROOT_PASSWORD: test-only
+        ports: ['3306:3306']
+        options: --health-cmd="mysqladmin ping -ptest-only" --health-interval=10s --health-timeout=5s --health-retries=10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mbstring, dom, sqlite3, pdo_sqlite, pdo_pgsql, pdo_mysql
+          coverage: none
+          tools: composer:v2
+      - run: composer validate --strict
+      - run: composer require --dev 'orchestra/testbench:${{ matrix.testbench }}' 'phpunit/phpunit:${{ matrix.phpunit }}' --no-interaction --no-update
+      - run: composer update --prefer-dist --no-interaction
+      - run: composer check-release
+      - run: find src routes config scripts -name '*.php' -print0 | xargs -0 -n1 php -l
+      - run: composer test
+        env:
+          TEST_DB_CONNECTION: ${{ matrix.database == 'sqlite' && '' || matrix.database }}
+      - run: composer audit --no-dev
+  package:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2
+        with:
+          php-version: '8.4'
+          tools: composer:v2
+          coverage: none
+      - run: php scripts/check-release.php
+      - name: Build versioned package
+        run: |
+          version=$(php -r 'require "src/Support/PackageVersion.php"; echo \Chattrn\Connector\Support\PackageVersion::VERSION;')
+          composer archive --format=zip --dir=dist --file="chattrn-connector-$version"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: chattrn-connector
+          path: dist/*.zip

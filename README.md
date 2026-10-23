@@ -2,7 +2,7 @@
 
 Serves the Chattrn API from your own Laravel store, so Chattrn reads products, stock and
 orders the same way it reads a native Chattrn API or Shopify store. The full endpoint
-contract (`openapi.yaml`) lives in the main [chattrn-API](https://github.com/sahsojib114/chattrn-API)
+contract (`openapi.yaml`) lives in the main [chattrn-API](https://github.com/sahsojibai/CN-API)
 repo, alongside the Chattrn-side backend this package registers with.
 
 ## Connect from the Chattrn dashboard
@@ -137,3 +137,23 @@ Chattrn's updated dashboard saves allowlisted onboarding settings and mapping ch
 Browser credentials and diagnostic samples are excluded. Before a connection is created, the draft
 is browser-only; afterward it can also be backed up to Chattrn's configured database. Existing
 credentials stay encrypted on the server and are never restored into browser fields.
+
+
+## Canonical package and releases
+
+This repository (`sahnewajsojib123/chattrn-connector`) is the only maintained Laravel package.
+The CN-API repository contains a pointer to it, not a second PHP implementation.
+`src/Support/PackageVersion.php` is the single release-version source. Discovery, pairing and
+setup screens use that value through the compatibility constant on `ChattrnRegistrar`.
+
+For a release, update PackageVersion, merge with CI green, then tag that exact commit as
+`v<PackageVersion>`. Tag builds reject a mismatching version and publish a downloadable CI
+artifact after all matrix jobs pass. No GitHub Release or Packagist publication is performed
+by this workflow. Configure Packagist's repository webhook separately if using Packagist.
+Applications should install a released constraint (for example `^1.3` after v1.3.0 is available)
+and commit the application's composer.lock, rather than tracking dev-main in production.
+
+CI covers Laravel 10/11/12/13 through their Testbench versions and PHP 8.1–8.5 combinations,
+plus Laravel 13 jobs on disposable PostgreSQL and MySQL databases. These are configured
+checks; only the combinations actually executed locally or on GitHub are verified results.
+No CI database credentials are production secrets.

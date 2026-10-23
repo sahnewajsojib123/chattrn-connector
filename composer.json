@@ -3,7 +3,12 @@
     "description": "Serves the Chattrn API (devspec.txt: \"Slice 3: Laravel package installer\") from your own Laravel store, so Chattrn can read products, stock and orders the same way it reads a native Chattrn API or Shopify store.",
     "type": "library",
     "license": "MIT",
-    "keywords": ["chattrn", "laravel", "ecommerce", "api"],
+    "keywords": [
+        "chattrn",
+        "laravel",
+        "ecommerce",
+        "api"
+    ],
     "require": {
         "php": "^8.1",
         "illuminate/support": "^10.0|^11.0|^12.0|^13.0",
@@ -12,7 +17,7 @@
         "illuminate/database": "^10.0|^11.0|^12.0|^13.0"
     },
     "require-dev": {
-        "orchestra/testbench": "^8.0|^9.0|^10.0",
+        "orchestra/testbench": "^8.0|^9.0|^10.0|^11.0",
         "phpunit/phpunit": "^10.0|^11.0"
     },
     "autoload": {
@@ -32,5 +37,19 @@
             ]
         }
     },
-    "minimum-stability": "stable"
+    "minimum-stability": "stable",
+    "scripts": {
+        "test": "@php vendor/bin/phpunit",
+        "check-release": "@php scripts/check-release.php"
+    },
+    "archive": {
+        "exclude": [
+            "/vendor",
+            "/tests",
+            "/.github",
+            "/composer.lock",
+            "/.phpunit.result.cache",
+            "/dist"
+        ]
+    }
 }
