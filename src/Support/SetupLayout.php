@@ -86,6 +86,24 @@ h1 { font: 600 22px/34px Inter, sans-serif; color: var(--ink); margin: 0 0 .35re
 .card .section-hint { color: var(--ink-soft); font: 400 13px/20px Inter, sans-serif; margin: 2px 0 0; }
 .card-head { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; }
 .card-head .titles { display: flex; flex-direction: column; gap: 4px; }
+.card-title { display: flex; flex-direction: column; gap: 2px; }
+
+/* Row-list mapping pattern (Models / columns cards): label+hint left, editable field middle,
+   guess status right — same shape as the Figma "Your endpoints" / mapping screens. */
+.cat { margin: 4px 0 0; font: 600 11px/16px Inter, sans-serif; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.02em; }
+.row { display: flex; gap: 16px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+.row-label { width: 190px; flex: none; }
+.row-label p.t { margin: 0; font: 600 13px/20px Inter, sans-serif; color: var(--ink); }
+.row-label p.h { margin: 0; font: 400 12px/18px Inter, sans-serif; color: var(--ink-soft); }
+.row-field { flex: 1 0 0; min-width: 0; }
+.row-field input, .row-field select { width: 100%; box-sizing: border-box; height: 36px; border: 1px solid #dae0e4; border-radius: 8px; padding: 0 12px; font: 400 13px/20px Inter, sans-serif; color: var(--ink); background: #fff; }
+.row-field input:focus, .row-field select:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
+.row-status { width: 190px; flex: none; }
+.row-status p.s { margin: 0; font: 600 12px/18px Inter, sans-serif; }
+.row-status p.d { margin: 0; font: 400 12px/18px Inter, sans-serif; color: var(--ink-soft); }
+.row-status .s.ok { color: var(--ok-ink); }
+.row-status .s.warn { color: #e98b00; }
+.row-status .s.muted { color: var(--ink-soft); }
 
 .badge { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 4px 10px 4px 8px; font: 600 12px/18px Inter, sans-serif; flex: none; white-space: nowrap; }
 .badge::before { content: ""; width: 8px; height: 8px; border-radius: 4px; background: currentColor; }

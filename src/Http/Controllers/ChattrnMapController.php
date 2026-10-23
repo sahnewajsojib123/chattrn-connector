@@ -17,6 +17,10 @@ use Chattrn\Connector\Support\SetupLayout;
 // or redeploy needed. Gated by whichever of CHATTRN_TOKEN (before registration) or
 // CHATTRN_ACCESS_TOKEN (after) is currently set - no new secret, same as the register
 // screen.
+//
+// Renders step 2 of the same CDS "Connect / Map your tables / Verify" flow as
+// ChattrnSetupController (SetupLayout - stepper, row-list cards with a guess-status column),
+// matching the approved "Laravel B · Map your tables" Figma frame.
 class ChattrnMapController extends Controller
 {
     private const MODEL_CANDIDATES = [
@@ -152,7 +156,8 @@ class ChattrnMapController extends Controller
 
     private function errorPage(string $message): string
     {
-        return SetupLayout::page('Map your store', '<h1>Map your store</h1>' . SetupLayout::banner('err', $message));
+        return '<div class="panel-head"><h1>Map your tables</h1></div>'
+            . '<div class="panel-body">' . SetupLayout::banner('err', $message) . '</div>';
     }
 
     private function renderForm(?string $notice = null, ?string $error = null): string
@@ -161,29 +166,33 @@ class ChattrnMapController extends Controller
         $saved = config('chattrn.models', []);
         $classOptions = array_keys($models);
 
-        $guessedModel = fn (string $concept, bool $optional) => $saved[$concept]
-            ?? Introspector::guessModel($models, self::MODEL_CANDIDATES[$concept])
-            ?? ($optional ? null : null);
+        $guessedModel = fn (string $concept) => $saved[$concept]
+            ?? Introspector::guessModel($models, self::MODEL_CANDIDATES[$concept]);
 
-        $productModel = $guessedModel('product', false);
-        $variantModel = $guessedModel('variant', true);
-        $orderModel = $guessedModel('order', true);
-        $customerModel = $guessedModel('customer', true);
-        $locationModel = $guessedModel('location', true);
+        $productModel = $guessedModel('product');
+        $variantModel = $guessedModel('variant');
+        $orderModel = $guessedModel('order');
+        $customerModel = $guessedModel('customer');
+        $locationModel = $guessedModel('location');
         $inventoryModel = config('chattrn.inventory.model') ?? Introspector::guessModel($models, self::INVENTORY_CANDIDATES);
         $orderItemGuessModel = Introspector::guessModel($models, self::ORDER_ITEM_CANDIDATES);
 
         $colsOf = fn (?string $class) => $class && isset($models[$class]) ? $models[$class] : [];
-
-        $guessCol = fn (array $cols, array $candidates, ?string $saved) => $saved ?? Introspector::guessColumn($cols, $candidates);
 
         $variantCols = $colsOf($variantModel ?: $productModel);
         $orderCols = $colsOf($orderModel);
         $invCols = $colsOf($inventoryModel);
         $orderItemCols = $colsOf($orderItemGuessModel);
 
-        $html = '<h1>Map your store</h1>';
-        $html .= '<p class="lede">Fields are pre-filled with best guesses from your app\'s actual tables. Fix anything wrong, then Save — changes are live immediately, no redeploy needed.</p>';
+        $token = e(request()->query('token', ''));
+
+        $html = '<div class="panel-head">';
+        $html .= '<h1>Map your tables</h1>';
+        $html .= '<p class="lede">Fields are pre-filled with best guesses from your app&rsquo;s actual tables. Fix anything wrong &mdash; changes save straight to the database, no redeploy needed.</p>';
+        $html .= SetupLayout::stepper(2);
+        $html .= '</div>';
+
+        $html .= '<div class="panel-body">';
 
         if ($notice) {
             $html .= SetupLayout::banner('ok', $notice);
@@ -192,60 +201,80 @@ class ChattrnMapController extends Controller
             $html .= SetupLayout::banner('err', $error);
         }
 
-        $html .= '<form method="post" action="?token=' . e(request()->query('token', '')) . '">';
+        $html .= '<form id="mapForm" method="post" action="?token=' . $token . '">';
 
-        $html .= $this->card('Models', null,
-            $this->modelSelect('models.product', 'Product (required)', null, $classOptions, $productModel)
-            . $this->modelSelect('models.variant', 'Variant', 'Blank if products have no variants', $classOptions, $variantModel, true)
-            . $this->modelSelect('models.order', 'Order (required)', null, $classOptions, $orderModel)
-            . $this->modelSelect('models.customer', 'Customer', 'Blank if orders carry phone/email directly — guest checkout', $classOptions, $customerModel, true)
-            . $this->modelSelect('models.location', 'Location / Outlet', 'Served from locations.json', $classOptions, $locationModel, true)
+        $html .= $this->card('Models', 'Which Eloquent model is which concept.',
+            $this->cat('Required')
+            . $this->modelRow('models.product', 'Product', 'Catalog item', $classOptions, $productModel, true, $models, isset($saved['product']))
+            . $this->modelRow('models.order', 'Order', 'Placed order', $classOptions, $orderModel, true, $models, isset($saved['order']))
+            . $this->cat('Optional')
+            . $this->modelRow('models.variant', 'Variant', 'Blank if products have no variants', $classOptions, $variantModel, false, $models, isset($saved['variant']))
+            . $this->modelRow('models.customer', 'Customer', 'Guest checkout if blank', $classOptions, $customerModel, false, $models, isset($saved['customer']))
+            . $this->modelRow('models.location', 'Location / Outlet', 'Served from locations.json', $classOptions, $locationModel, false, $models, isset($saved['location']))
         );
 
-        $html .= $this->card('Product &amp; variant columns', null,
-            $this->textField('columns.variant.price', 'Price column', null, $guessCol($variantCols, ['price', 'amount', 'unit_price'], config('chattrn.columns.variant.price')))
-            . $this->textField('columns.variant.stock', 'Stock column', null, $guessCol($variantCols, ['stock', 'quantity', 'qty'], config('chattrn.columns.variant.stock')))
-            . $this->textField('columns.variant.title', 'Variant title column', 'Only if a Variant model is set', $guessCol($variantCols, ['title', 'name'], config('chattrn.columns.variant.title')))
-            . $this->textField('columns.variant.options_json', 'JSON options column', 'Blank if option1/2/3 are separate columns', config('chattrn.columns.variant.options_json'))
+        $html .= $this->card('Product &amp; variant columns', 'Guessed from ' . e($productModel ?: 'your Product model') . '.',
+            $this->cat('Required')
+            . $this->colRow('columns.variant.price', 'Price column', null, $variantCols, ['price', 'amount', 'unit_price'], config('chattrn.columns.variant.price'), true)
+            . $this->colRow('columns.variant.stock', 'Stock column', null, $variantCols, ['stock', 'quantity', 'qty'], config('chattrn.columns.variant.stock'), true)
+            . $this->cat('Optional')
+            . $this->colRow('columns.variant.title', 'Variant title column', 'Only if Variant is set', $variantCols, ['title', 'name'], config('chattrn.columns.variant.title'), false)
+            . $this->colRow('columns.variant.options_json', 'JSON options column', 'Blank if separate columns', $variantCols, [], config('chattrn.columns.variant.options_json'), false)
         );
 
         $html .= $this->card('Order columns', null,
-            $this->textField('columns.order.total', 'Order total column', null, $guessCol($orderCols, ['total', 'grand_total', 'amount'], config('chattrn.columns.order.total')))
-            . $this->textField('columns.order.customer_name', 'Customer name column on Order', 'Only if no Customer model', $guessCol($orderCols, ['customer_name', 'name', 'full_name'], config('chattrn.columns.order.customer_name')))
-            . $this->textField('columns.order.address', 'Shipping address column on Order', 'Only if no Customer model', $guessCol($orderCols, ['address', 'shipping_address'], config('chattrn.columns.order.address')))
+            $this->cat('Required')
+            . $this->colRow('columns.order.total', 'Order total column', null, $orderCols, ['total', 'grand_total', 'amount'], config('chattrn.columns.order.total'), true)
+            . $this->cat('Optional')
+            . $this->colRow('columns.order.customer_name', 'Customer name column', 'Only if no Customer model', $orderCols, ['customer_name', 'name', 'full_name'], config('chattrn.columns.order.customer_name'), false)
+            . $this->colRow('columns.order.address', 'Shipping address column', 'Only if no Customer model', $orderCols, ['address', 'shipping_address'], config('chattrn.columns.order.address'), false)
         );
 
-        $html .= $this->card('Line item columns', 'Guessed from ' . ($orderItemGuessModel ?: 'the order items table') . ' — fix if it differs.',
-            $this->textField('columns.order_item.title', 'Title column', null, $guessCol($orderItemCols, ['title', 'name'], config('chattrn.columns.order_item.title')))
-            . $this->textField('columns.order_item.price', 'Price column', null, $guessCol($orderItemCols, ['price', 'unit_price'], config('chattrn.columns.order_item.price')))
-            . $this->textField('columns.order_item.sku', 'SKU column', null, $guessCol($orderItemCols, ['sku', 'code'], config('chattrn.columns.order_item.sku')))
-            . $this->textField('columns.order_item.variant_title', 'Variant title / options snapshot column', 'Blank if none', config('chattrn.columns.order_item.variant_title'))
+        $html .= $this->card('Line item columns', 'Guessed from ' . e($orderItemGuessModel ?: 'the order items table') . '.',
+            $this->cat('Required')
+            . $this->colRow('columns.order_item.title', 'Title column', null, $orderItemCols, ['title', 'name'], config('chattrn.columns.order_item.title'), true)
+            . $this->colRow('columns.order_item.price', 'Price column', null, $orderItemCols, ['price', 'unit_price'], config('chattrn.columns.order_item.price'), true)
+            . $this->cat('Optional')
+            . $this->colRow('columns.order_item.sku', 'SKU column', null, $orderItemCols, ['sku', 'code'], config('chattrn.columns.order_item.sku'), false)
+            . $this->colRow('columns.order_item.variant_title', 'Variant snapshot column', 'Blank if none', $orderItemCols, [], config('chattrn.columns.order_item.variant_title'), false)
         );
 
         $html .= $this->card('Inventory', 'Only needed if price/stock vary by outlet or location.',
-            $this->textField('inventory.model', 'Inventory model', 'Fully-qualified class — blank if price/stock are flat columns above', $inventoryModel)
-            . $this->textField('inventory.columns.product_id', 'Product id column', null, $guessCol($invCols, ['product_id'], config('chattrn.inventory.columns.product_id')))
-            . $this->textField('inventory.columns.variant_id', 'Variant id column', 'Blank if inventory is per-product, not per-variant', $guessCol($invCols, ['variant_id'], config('chattrn.inventory.columns.variant_id')))
-            . $this->textField('inventory.columns.location_id', 'Location/outlet id column', null, $guessCol($invCols, ['location_id', 'outlet_id', 'store_id'], config('chattrn.inventory.columns.location_id')))
-            . $this->textField('inventory.columns.price', 'Price column', null, $guessCol($invCols, ['price'], config('chattrn.inventory.columns.price')))
-            . $this->textField('inventory.columns.stock', 'Stock column', null, $guessCol($invCols, ['stock', 'quantity'], config('chattrn.inventory.columns.stock')))
-            . $this->textField('inventory.columns.compare_price', 'Compare-at price column', 'Blank if none', config('chattrn.inventory.columns.compare_price'))
-            . $this->textField('store.primary_location_id', 'Primary location id', 'Blank = first active location', config('chattrn.store.primary_location_id'))
+            $this->cat('Optional: turns on per-location stock')
+            . $this->modelRow('inventory.model', 'Inventory model', 'Fully-qualified class', array_merge($classOptions, $inventoryModel ? [$inventoryModel] : []), $inventoryModel, false, $models, (bool) config('chattrn.inventory.model'))
+            . $this->colRow('inventory.columns.product_id', 'Product id column', null, $invCols, ['product_id'], config('chattrn.inventory.columns.product_id'), false)
+            . $this->colRow('inventory.columns.variant_id', 'Variant id column', 'Blank if inventory is per-product', $invCols, ['variant_id'], config('chattrn.inventory.columns.variant_id'), false)
+            . $this->colRow('inventory.columns.location_id', 'Location id column', null, $invCols, ['location_id', 'outlet_id', 'store_id'], config('chattrn.inventory.columns.location_id'), false)
+            . $this->colRow('inventory.columns.price', 'Price column', null, $invCols, ['price'], config('chattrn.inventory.columns.price'), false)
+            . $this->colRow('inventory.columns.stock', 'Stock column', null, $invCols, ['stock', 'quantity'], config('chattrn.inventory.columns.stock'), false)
+            . $this->colRow('inventory.columns.compare_price', 'Compare-at price column', 'Blank if none', $invCols, [], config('chattrn.inventory.columns.compare_price'), false)
+            . $this->colRow('store.primary_location_id', 'Primary location id', 'Blank = first active location', [], [], config('chattrn.store.primary_location_id'), false)
         );
 
         $html .= $this->card('Store', null,
-            $this->textField('store.currency', 'Currency code', null, config('chattrn.store.currency', 'BDT'))
-            . $this->textField('store.delivery_mode', 'Delivery mode', '"zone" or "outlet"', config('chattrn.store.delivery_mode', 'zone'))
+            $this->cat('Required')
+            . $this->colRow('store.currency', 'Currency code', null, [], [], config('chattrn.store.currency', 'BDT'), true)
+            . $this->colRow('store.delivery_mode', 'Delivery mode', '"zone" or "outlet"', [], [], config('chattrn.store.delivery_mode', 'zone'), true)
         );
 
-        $previewUrl = preg_replace('#/map$#', '/map/preview', request()->path()) . '?token=' . e(request()->query('token', ''));
-        $html .= '<div class="actions"><button type="submit">Save mapping</button>'
-            . '<a href="/' . e($previewUrl) . '" class="btn btn-secondary" onclick="previewMapping(event)">Preview a real product + order →</a></div>';
-        $html .= '<pre id="preview-out" style="display:none"></pre>';
         $html .= '</form>';
 
+        $previewUrl = preg_replace('#/map$#', '/map/preview', request()->path()) . '?token=' . $token;
+        $html .= '<section class="card">'
+            . '<div class="card-head"><div class="titles"><h2>Preview</h2></div>'
+            . '<a href="/' . e($previewUrl) . '" style="font:600 13px/20px Inter,sans-serif;color:var(--accent);" onclick="chattrnPreview(event)">Run against a real product + order &rarr;</a></div>'
+            . '<pre id="preview-out" style="display:none;"></pre>'
+            . '</section>';
+
+        $html .= '</div>'; // .panel-body
+
+        $html .= '<div class="footer-bar">'
+            . '<a class="btn btn-secondary" href="/chattrn/setup/register?token=' . $token . '">Back</a>'
+            . '<button type="submit" form="mapForm" class="btn">Save mapping &amp; continue</button>'
+            . '</div>';
+
         $html .= '<script>
-function previewMapping(e) {
+function chattrnPreview(e) {
     e.preventDefault();
     fetch(e.currentTarget.href).then(r => r.json()).then(data => {
         const out = document.getElementById("preview-out");
@@ -255,43 +284,72 @@ function previewMapping(e) {
 }
 </script>';
 
-        return SetupLayout::page('Map your store', $html);
+        return SetupLayout::page('Map your tables', $html);
     }
 
-    private function card(string $title, ?string $hint, string $inner): string
+    private function card(string $title, ?string $hint, string $rowsHtml): string
     {
-        $hintHtml = $hint ? '<p class="section-hint">' . e($hint) . '</p>' : '';
+        $hintHtml = $hint ? '<p class="section-hint">' . $hint . '</p>' : '';
 
-        return '<div class="card"><h2>' . $title . '</h2>' . $hintHtml . $inner . '</div>';
+        return '<section class="card"><div class="card-title"><h2>' . $title . '</h2>' . $hintHtml . '</div>' . $rowsHtml . '</section>';
     }
 
-    private function modelSelect(string $name, string $label, ?string $hint, array $options, ?string $selected, bool $optional = false): string
+    private function cat(string $label): string
     {
-        $opts = $optional ? ['' => '— none —'] : ['' => '— choose —'];
-        foreach ($options as $class) {
+        return '<p class="cat">' . e($label) . '</p>';
+    }
+
+    private function row(string $fieldHtml, string $title, ?string $hint, string $statusText, string $statusClass, ?string $statusDetail = null): string
+    {
+        $hintHtml = $hint ? '<p class="h">' . e($hint) . '</p>' : '';
+        $detailHtml = $statusDetail ? '<p class="d">' . e($statusDetail) . '</p>' : '';
+
+        return '<div class="row">'
+            . '<div class="row-label"><p class="t">' . e($title) . '</p>' . $hintHtml . '</div>'
+            . '<div class="row-field">' . $fieldHtml . '</div>'
+            . '<div class="row-status"><p class="s ' . $statusClass . '">' . $statusText . '</p>' . $detailHtml . '</div>'
+            . '</div>';
+    }
+
+    // $models is Introspector::models() — used to report a column count once a model is
+    // chosen, the same "14 columns found" detail the Figma frame shows. $wasSaved tells apart
+    // a value that's already been saved (chattrn_settings or config/chattrn.php) from one
+    // Introspector just guessed this request, so the status column can say which.
+    private function modelRow(string $name, string $label, ?string $hint, array $options, ?string $selected, bool $required, array $models, bool $wasSaved = false): string
+    {
+        $opts = $required ? ['' => '&mdash; choose &mdash;'] : ['' => '&mdash; none &mdash;'];
+        foreach (array_unique($options) as $class) {
             $opts[$class] = $class;
         }
         if ($selected && ! isset($opts[$selected])) {
-            $opts[$selected] = $selected . ' (not found — check it exists)';
+            $opts[$selected] = $selected . ' (not found &mdash; check it exists)';
         }
 
-        $hintHtml = $hint ? ' <span class="hint">— ' . e($hint) . '</span>' : '';
-
-        $html = '<div class="field"><label>' . e($label) . $hintHtml . '</label><select name="' . e($name) . '">';
+        $select = '<select name="' . e($name) . '">';
         foreach ($opts as $value => $text) {
             $sel = ($value === ($selected ?? '')) ? ' selected' : '';
-            $html .= '<option value="' . e($value) . '"' . $sel . '>' . e($text) . '</option>';
+            $select .= '<option value="' . e($value) . '"' . $sel . '>' . $text . '</option>';
         }
-        $html .= '</select></div>';
+        $select .= '</select>';
 
-        return $html;
+        if ($selected) {
+            $detail = isset($models[$selected]) ? count($models[$selected]) . ' columns found' : null;
+            return $this->row($select, $label, $hint, ($wasSaved ? '&#10003; Matched' : '&#10003; Guessed'), 'ok', $detail);
+        }
+
+        return $this->row($select, $label, $hint, $required ? '! Not matched' : 'Not added', $required ? 'warn' : 'muted', $required ? 'pick a model' : null);
     }
 
-    private function textField(string $name, string $label, ?string $hint, ?string $value): string
+    private function colRow(string $name, string $label, ?string $hint, array $columns, array $candidates, ?string $savedValue, bool $required): string
     {
-        $hintHtml = $hint ? ' <span class="hint">— ' . e($hint) . '</span>' : '';
+        $guessed = $savedValue ?? ($candidates ? Introspector::guessColumn($columns, $candidates) : null);
+        $input = '<input type="text" name="' . e($name) . '" value="' . e($guessed ?? '') . '">';
 
-        return '<div class="field"><label>' . e($label) . $hintHtml . '</label>'
-            . '<input type="text" name="' . e($name) . '" value="' . e($value ?? '') . '"></div>';
+        if ($guessed) {
+            $label2 = $savedValue ? '&#10003; Matched' : '&#10003; Guessed';
+            return $this->row($input, $label, $hint, $label2, 'ok');
+        }
+
+        return $this->row($input, $label, $hint, $required ? '! Not matched' : 'Not added', $required ? 'warn' : 'muted', $required ? 'no match found' : null);
     }
 }
