@@ -14,7 +14,8 @@ use Chattrn\Connector\Support\SetupLayout;
 // already in .env rather than a separate secret, since that value is already only known to
 // whoever has the Install package screen open.
 //
-// Renders the same card-on-light-background look as /chattrn/setup/map (SetupLayout) when
+// Renders the same CDS-styled "Connect" screen as /chattrn/setup/map and the (future)
+// /chattrn/setup/verify (SetupLayout - stepper, Connection card, Environment card) when
 // opened in a browser, and falls back to plain JSON for anything that sends
 // Accept: application/json (a script, curl, or a future onboarding-status poller) - so the
 // one endpoint serves both a human clicking a link and a machine checking status.
@@ -45,28 +46,58 @@ class ChattrnSetupController extends Controller
 
         if (config('chattrn.access_token')) {
             $payload = ['ok' => true, 'message' => 'Already registered (CHATTRN_ACCESS_TOKEN is already set).'];
-            return $this->respond($request, 200, $payload, $this->renderResult('ok', $payload['message']));
+            return $this->respond($request, 200, $payload, $this->renderConnect(
+                bannerType: 'ok',
+                bannerMessage: $payload['message'],
+                connected: true,
+                revealToken: null,
+                token: $request->query('token', '')
+            ));
         }
 
         $expected = config('chattrn.connection_token');
         if (! $expected) {
             $payload = ['ok' => false, 'message' => 'No CHATTRN_TOKEN configured in .env - paste it in first.'];
-            return $this->respond($request, 422, $payload, $this->renderResult('err', $payload['message']));
+            return $this->respond($request, 422, $payload, $this->renderConnect(
+                bannerType: 'err',
+                bannerMessage: $payload['message'],
+                connected: false,
+                revealToken: null,
+                token: $request->query('token', '')
+            ));
         }
         if (! hash_equals((string) $expected, (string) $request->query('token', ''))) {
             $payload = ['ok' => false, 'message' => 'Missing or incorrect ?token= - pass the same value as CHATTRN_TOKEN.'];
-            return $this->respond($request, 403, $payload, $this->renderResult('err', $payload['message']));
+            return $this->respond($request, 403, $payload, $this->renderConnect(
+                bannerType: 'err',
+                bannerMessage: $payload['message'],
+                connected: false,
+                revealToken: null,
+                token: $request->query('token', '')
+            ));
         }
 
         if (! config('chattrn.models.product') || ! config('chattrn.models.order')) {
             $payload = ['ok' => false, 'message' => 'Product/Order aren\'t mapped yet - visit /chattrn/setup/map first.'];
-            return $this->respond($request, 422, $payload, $this->renderResult('err', $payload['message']));
+            return $this->respond($request, 422, $payload, $this->renderConnect(
+                bannerType: 'err',
+                bannerMessage: $payload['message'],
+                connected: false,
+                revealToken: null,
+                token: $request->query('token', '')
+            ));
         }
 
         $result = ChattrnRegistrar::register($expected);
         if (! $result['ok']) {
             $payload = ['ok' => false, 'message' => $result['message']];
-            return $this->respond($request, 502, $payload, $this->renderResult('err', $payload['message']));
+            return $this->respond($request, 502, $payload, $this->renderConnect(
+                bannerType: 'err',
+                bannerMessage: $payload['message'],
+                connected: false,
+                revealToken: null,
+                token: $request->query('token', '')
+            ));
         }
 
         $payload = [
@@ -75,13 +106,13 @@ class ChattrnSetupController extends Controller
             'CHATTRN_ACCESS_TOKEN' => $result['access_token'],
         ];
 
-        $body = $this->renderResult('ok', $payload['message'])
-            . '<div class="card"><h2>CHATTRN_ACCESS_TOKEN</h2>'
-            . '<p class="section-hint">Add this to your host\'s environment variables, then remove CHATTRN_TOKEN and redeploy.</p>'
-            . '<div class="token-box">' . e($result['access_token']) . '</div></div>'
-            . '<p><a class="btn-secondary" href="/chattrn/setup/map?token=' . e($result['access_token']) . '">Map your store →</a></p>';
-
-        return $this->respond($request, 200, $payload, $body);
+        return $this->respond($request, 200, $payload, $this->renderConnect(
+            bannerType: 'warn',
+            bannerMessage: $payload['message'],
+            connected: true,
+            revealToken: $result['access_token'],
+            token: $result['access_token']
+        ));
     }
 
     // JSON for anything that explicitly asks for it (Accept: application/json - scripts,
@@ -97,11 +128,135 @@ class ChattrnSetupController extends Controller
             ->header('Content-Type', 'text/html; charset=utf-8');
     }
 
-    private function renderResult(string $type, string $message): string
+    // The single "Connect" screen (step 1 of 3), covering every state the register endpoint
+    // can be in:
+    //   - not connected yet (no/wrong token, or Product/Order not mapped) — $connected=false
+    //   - just registered this request, access token not saved to .env yet — $revealToken set,
+    //     the one moment the real token is shown in full so it can be copied
+    //   - already registered on an earlier visit — $connected=true, $revealToken=null, so the
+    //     stored token is shown masked rather than re-displayed in full
+    private function renderConnect(string $bannerType, string $bannerMessage, bool $connected, ?string $revealToken, string $token): string
     {
-        $title = $type === 'ok' ? 'Register with Chattrn' : 'Couldn\'t register yet';
+        $html = '<div class="panel-head">';
+        $html .= '<h1>Register with Chattrn</h1>';
+        $html .= '<p class="lede">One-time &mdash; exchanges your setup token for an ongoing access token. Chattrn calls your package from its servers; nothing in your store changes.</p>';
+        $html .= SetupLayout::stepper(1);
+        $html .= '</div>';
 
-        return '<h1>' . e($title) . '</h1>' . SetupLayout::banner($type, $message);
+        $html .= '<div class="panel-body">';
+        $html .= SetupLayout::banner($bannerType, $bannerMessage);
+        $html .= $this->connectionCard($connected, $revealToken);
+        $html .= $this->environmentCard($connected);
+        $html .= '</div>';
+
+        $mapUrl = '/chattrn/setup/map?token=' . e($token);
+        $continueDisabled = ! $connected;
+        $continueHtml = $continueDisabled
+            ? '<span class="btn btn-disabled" title="Finish registering above first">Continue: map your tables</span>'
+            : '<a class="btn" href="' . $mapUrl . '">Continue: map your tables</a>';
+
+        $html .= '<div class="footer-bar">'
+            . '<a class="btn btn-secondary" href="/">Back</a>'
+            . $continueHtml
+            . '</div>';
+
+        $html .= '<script>
+function chattrnCopy(btn, value) {
+    navigator.clipboard.writeText(value).then(() => {
+        const old = btn.textContent;
+        btn.textContent = "Copied";
+        setTimeout(() => { btn.textContent = old; }, 1200);
+    });
+}
+</script>';
+
+        return $html;
+    }
+
+    private function connectionCard(bool $connected, ?string $revealToken): string
+    {
+        $badge = $connected
+            ? SetupLayout::badge('ok', 'CONNECTED')
+            : SetupLayout::badge('err', 'NOT CONNECTED');
+
+        $tokenField = $revealToken
+            ? '<code>' . e($revealToken) . '</code><button type="button" onclick="chattrnCopy(this, ' . e(json_encode($revealToken)) . ')">Copy</button>'
+            : ($connected
+                ? '<code>' . e($this->maskToken((string) config('chattrn.access_token'))) . '</code><button type="button" onclick="chattrnCopy(this, ' . e(json_encode((string) config('chattrn.access_token'))) . ')">Copy</button>'
+                : '<span class="val">Not issued yet</span>');
+
+        $html = '<section class="card">';
+        $html .= '<div class="card-head"><div class="titles">'
+            . '<p style="margin:0;font:600 16px/24px Inter,sans-serif;color:var(--ink);">Connection</p>'
+            . '<p style="margin:0;font:400 13px/20px Inter,sans-serif;color:var(--ink-soft);">Chattrn calls your package from its servers using this access token.</p>'
+            . '</div>' . $badge . '</div>';
+
+        $html .= '<div class="tf-row">'
+            . '<div class="tf"><label>Access token</label><div class="field">' . $tokenField . '</div></div>'
+            . '<div class="tf"><label>Package</label><div class="field"><span class="val">chattrn/connector &middot; v' . e(ChattrnRegistrar::PACKAGE_VERSION) . '</span></div></div>'
+            . '</div>';
+
+        $html .= '<div class="note">'
+            . '<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><rect x="4" y="8" width="10" height="7" rx="1.5" stroke="#6c7584" stroke-width="1.3" fill="none"/><path d="M6 8V5.5a3 3 0 0 1 6 0V8" stroke="#6c7584" stroke-width="1.3" fill="none"/></svg>'
+            . '<p>' . ($revealToken
+                ? 'This is shown once. Add it to your host\'s environment as CHATTRN_ACCESS_TOKEN, remove CHATTRN_TOKEN, then redeploy.'
+                : 'Stored in your environment, not in a committed config file. Chattrn only calls your package from its servers, never from a customer\'s browser.')
+            . '</p></div>';
+
+        $html .= '</section>';
+
+        return $html;
+    }
+
+    private function environmentCard(bool $connected): string
+    {
+        $rawEnv = getenv('CHATTRN_TOKEN');
+        $rows = [
+            [
+                'CHATTRN_TOKEN present in environment',
+                $rawEnv !== false && $rawEnv !== '',
+            ],
+            [
+                'Laravel config sees it',
+                (bool) (config('chattrn.connection_token') || config('chattrn.access_token')),
+            ],
+            [
+                'Tables mapped',
+                (bool) (config('chattrn.models.product') && config('chattrn.models.order')),
+                'Not started yet &mdash; happens next, in Step 2.',
+            ],
+        ];
+
+        $html = '<section class="card"><p style="margin:0;font:600 16px/24px Inter,sans-serif;color:var(--ink);">Environment</p>'
+            . '<p class="section-hint">What Chattrn can see on this install so far.</p>'
+            . '<div class="row-list">';
+
+        foreach ($rows as [$label, $done, $hint]) {
+            $hint = $hint ?? null;
+            $state = $done
+                ? '<span class="state ok">DONE</span>'
+                : '<span class="state">&mdash;</span>';
+            $html .= '<div class="status-row"><div>'
+                . '<strong>' . e($label) . '</strong>'
+                . ($hint && ! $done ? '<span class="desc">' . $hint . '</span>' : '')
+                . '</div>' . $state . '</div>';
+        }
+
+        $html .= '</div></section>';
+
+        return $html;
+    }
+
+    private function maskToken(string $token): string
+    {
+        if ($token === '') {
+            return 'Not issued yet';
+        }
+
+        $tail = substr($token, -6);
+        $prefix = str_contains($token, '_') ? substr($token, 0, strpos($token, '_') + 1) : '';
+
+        return $prefix . str_repeat('&bull;', 12) . $tail;
     }
 
     private function renderDiagnostics(array $diagnostics): string
@@ -117,9 +272,9 @@ class ChattrnSetupController extends Controller
             ['package_version', 'chattrn/connector version'],
         ];
 
-        $html = '<h1>Environment diagnostics</h1>';
-        $html .= '<p class="lede">No secret values shown — presence and length only.</p>';
-        $html .= '<div class="card">';
+        $html = '<div class="panel-head"><h1>Environment diagnostics</h1>'
+            . '<p class="lede">No secret values shown — presence and length only.</p></div>';
+        $html .= '<div class="panel-body"><div class="card">';
         foreach ($rows as [$key, $label]) {
             $value = $diagnostics[$key] ?? null;
             $display = is_bool($value) ? ($value ? 'true' : 'false') : (string) $value;
@@ -133,7 +288,7 @@ class ChattrnSetupController extends Controller
             $html .= '<div class="status-row"><div class="status-dot ' . $dotClass . '">' . $dotChar . '</div>'
                 . '<div><strong>' . e($label) . '</strong><span class="desc">' . e($key) . ' = <code>' . e($display) . '</code></span></div></div>';
         }
-        $html .= '</div>';
+        $html .= '</div></div>';
 
         return $html;
     }
