@@ -13,7 +13,7 @@ class VerifyChattrnToken
 {
     public function handle(Request $request, Closure $next)
     {
-        $expected = config('chattrn.access_token');
+        $expected = \Chattrn\Connector\Support\Credentials::token();
         $given = $request->header('X-Chattrn-Access-Token');
 
         if (! $expected || ! $given || ! hash_equals((string) $expected, (string) $given)) {

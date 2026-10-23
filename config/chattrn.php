@@ -9,15 +9,14 @@ return [
     'api_version' => '2026-10',
 
     // The access key Chattrn returns from POST /package/register (see ChattrnRegistrar).
-    // Stored in .env, never committed.
+    // Normally encrypted in the database after pairing; environment value supports existing installs.
     'access_token' => env('CHATTRN_ACCESS_TOKEN'),
 
     // Where the Chattrn backend lives, so this package can call POST /package/register.
     'backend_url' => env('CHATTRN_BACKEND_URL', 'https://api.chattrn.com'),
 
     // The one-time setup token pasted into .env from the Install package screen. Only read
-    // once, by `php artisan chattrn:map` (or on boot if access_token is still empty), then
-    // it should be removed from .env.
+    // by chattrn:register after migrations. Successful restarts reuse the encrypted credential.
     'connection_token' => trim((string) env('CHATTRN_TOKEN', '')) ?: null,
 
     'store' => [

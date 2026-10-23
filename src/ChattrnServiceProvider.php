@@ -29,6 +29,10 @@ class ChattrnServiceProvider extends ServiceProvider
         $this->app->booted(function () {
             try {
                 Settings::applyOverrides();
+                $token = \Chattrn\Connector\Support\Credentials::token();
+                if ($token) {
+                    config(['chattrn.access_token' => $token]);
+                }
             } catch (\Throwable $e) {
                 // fail open - config/chattrn.php + env() values still apply
             }

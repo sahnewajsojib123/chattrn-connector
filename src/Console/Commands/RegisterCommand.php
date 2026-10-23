@@ -17,19 +17,14 @@ class RegisterCommand extends Command
 
     public function handle(): int
     {
-        if (config('chattrn.access_token')) {
-            $this->info('Already registered (CHATTRN_ACCESS_TOKEN is set). Remove it from .env and re-run to re-register.');
+        if (\Chattrn\Connector\Support\Credentials::token()) {
+            $this->info('Already connected. Continue with Map your tables in Chattrn.');
             return self::SUCCESS;
         }
 
         $token = config('chattrn.connection_token');
         if (! $token) {
             $this->error('No CHATTRN_TOKEN found in .env. Paste it in first (from the Install package screen), then re-run chattrn:register.');
-            return self::FAILURE;
-        }
-
-        if (! config('chattrn.models.product') || ! config('chattrn.models.order')) {
-            $this->error('config/chattrn.php has no Product/Order model mapped yet. Run chattrn:map (or commit one already filled in) before registering.');
             return self::FAILURE;
         }
 
@@ -40,8 +35,7 @@ class RegisterCommand extends Command
             return self::FAILURE;
         }
 
-        $this->info('Registered. Add this to .env, then remove the CHATTRN_TOKEN line:');
-        $this->line('  CHATTRN_ACCESS_TOKEN=' . $result['access_token']);
+        $this->info('Connected. Access token saved encrypted in your database. Continue with Map your tables in Chattrn.');
 
         return self::SUCCESS;
     }

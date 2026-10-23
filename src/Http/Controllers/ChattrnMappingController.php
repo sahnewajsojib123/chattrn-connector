@@ -22,6 +22,16 @@ class ChattrnMappingController extends Controller
         return response()->json(['cards' => MappingSchema::cards()]);
     }
 
+    public function preview(Request $request)
+    {
+        $values = $request->validate(['values' => 'present|array'])['values'];
+        try {
+            return response()->json(['cards' => MappingSchema::preview($values)]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json(['error' => ['message' => collect($e->errors())->flatten()->first()], 'errors' => $e->errors()], 422);
+        }
+    }
+
     public function save(Request $request)
     {
         $values = $request->input('values');
@@ -33,6 +43,8 @@ class ChattrnMappingController extends Controller
 
         try {
             $saved = MappingSchema::save($values);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json(['error' => ['code' => 'invalid_mapping', 'message' => collect($e->errors())->flatten()->first()], 'errors' => $e->errors()], 422);
         } catch (\Throwable $e) {
             return response()->json([
                 'error' => ['code' => 'save_failed', 'message' => 'Could not save the mapping: ' . $e->getMessage()],

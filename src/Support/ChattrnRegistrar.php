@@ -10,15 +10,34 @@ use Illuminate\Support\Facades\Http;
 // of this contract is chattrn-backend/src/server.js's POST /package/register.
 class ChattrnRegistrar
 {
-    public const PACKAGE_VERSION = '1.1.1';
+    public const PACKAGE_VERSION = '1.2.0';
 
     // Returns ['ok' => true, 'access_token' => ...] or ['ok' => false, 'message' => ...].
     public static function register(string $connectionToken): array
     {
+        return \Illuminate\Support\Facades\Cache::lock('chattrn.registration', 30)->block(15, function () use ($connectionToken) {
+            return self::exchange($connectionToken);
+        });
+    }
+
+    private static function exchange(string $connectionToken): array
+    {
+        if (Credentials::token()) {
+            return ['ok' => true];
+        }
+        if (! Settings::tableExists()) {
+            return ['ok' => false, 'message' => 'Run php artisan migrate before pairing.'];
+        }
+        try {
+            \Illuminate\Support\Facades\Crypt::encryptString('pairing-storage-check');
+        } catch (\Throwable $e) {
+            return ['ok' => false, 'message' => 'Configure a stable Laravel APP_KEY before pairing.'];
+        }
         $backend = rtrim(config('chattrn.backend_url'), '/');
         $siteUrl = rtrim((string) (config('chattrn.store.domain') ?? config('app.url')), '/');
 
-        $response = Http::timeout(10)->post("{$backend}/package/register", [
+        try {
+            $response = Http::timeout(10)->post("{$backend}/package/register", [
             'token' => $connectionToken,
             'site_url' => $siteUrl,
             'route_prefix' => config('chattrn.route_prefix'),
@@ -32,11 +51,21 @@ class ChattrnRegistrar
             ],
         ]);
 
+        } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            return ['ok' => false, 'message' => 'Could not reach Chattrn. Check CHATTRN_BACKEND_URL and try again.'];
+        }
+
         if (! $response->successful()) {
             $message = $response->json('error.message') ?? $response->json('errors') ?? $response->body();
             return ['ok' => false, 'message' => is_string($message) ? $message : 'Register call failed.'];
         }
 
-        return ['ok' => true, 'access_token' => $response->json('access_token')];
+        $token = $response->json('access_token');
+        if (! is_string($token) || $token === '') {
+            return ['ok' => false, 'message' => 'Chattrn returned no access token.'];
+        }
+        Credentials::save($token);
+
+        return ['ok' => true];
     }
 }

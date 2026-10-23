@@ -32,6 +32,7 @@ Route::prefix(ltrim(config('chattrn.route_prefix', '/chattrn/api/2026-10'), '/')
 
         // Read/write the model+column mapping from Chattrn's dashboard ("Map your tables",
         // step 2). Proxied by the backend's /api/stores/:id/laravel/tables.
+        Route::post('mapping/preview.json', [ChattrnMappingController::class, 'preview']);
         Route::get('mapping.json', [ChattrnMappingController::class, 'show']);
         Route::put('mapping.json', [ChattrnMappingController::class, 'save']);
 

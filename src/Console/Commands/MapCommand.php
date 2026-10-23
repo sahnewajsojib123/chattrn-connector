@@ -125,8 +125,7 @@ class MapCommand extends Command
             return self::FAILURE;
         }
 
-        $this->info('Registered. Add this to .env, then remove the CHATTRN_TOKEN line:');
-        $this->line('  CHATTRN_ACCESS_TOKEN=' . $result['access_token']);
+        $this->info('Connected. Access token saved encrypted in your database.');
 
         return self::SUCCESS;
     }

@@ -21,8 +21,10 @@ class InstallCommand extends Command
         $this->info("Routes registered under {$prefix} (e.g. {$prefix}/store.json).");
         $this->line('');
         $this->line('Next:');
-        $this->line('  1. Paste the CHATTRN_TOKEN line from the Install package screen into .env.');
-        $this->line('  2. Run: php artisan chattrn:map');
+        $this->line('  1. Set CHATTRN_TOKEN and CHATTRN_BACKEND_URL from Chattrn.');
+        $this->line('  2. Run: php artisan migrate --force');
+        $this->line('  3. Run: php artisan chattrn:register');
+        $this->line('  4. Review your mappings in the Chattrn dashboard. No second token or redeploy is needed.');
 
         return self::SUCCESS;
     }

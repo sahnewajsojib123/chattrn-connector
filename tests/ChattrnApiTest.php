@@ -22,6 +22,7 @@ class ChattrnApiTest extends TestCase
 
     protected function defineEnvironment($app)
     {
+        $app['config']->set('app.key', 'base64:' . base64_encode(str_repeat('x', 32)));
         $app['config']->set('chattrn.access_token', 'test-token');
         $app['config']->set('chattrn.models.product', Product::class);
         $app['config']->set('chattrn.models.order', Order::class);
@@ -112,6 +113,90 @@ class ChattrnApiTest extends TestCase
             ->assertOk()->assertJsonCount(0, 'customers');
     }
 
+    public function test_registration_without_models_persists_encrypted_token_and_retries_safely(): void
+    {
+        $this->artisan('migrate', ['--force' => true])->assertSuccessful();
+        config([
+            'app.key' => 'base64:' . base64_encode(str_repeat('x', 32)),
+            'chattrn.access_token' => null,
+            'chattrn.models.product' => null,
+            'chattrn.models.order' => null,
+            'chattrn.connection_token' => 'setup-token',
+            'chattrn.backend_url' => 'https://backend.test',
+        ]);
+        \Illuminate\Support\Facades\Http::fake(['backend.test/package/register' =>
+            \Illuminate\Support\Facades\Http::response(['access_token' => 'persisted-token'])]);
+        $this->artisan('chattrn:register')->expectsOutputToContain('Access token saved encrypted')->assertSuccessful();
+        $stored = \Illuminate\Support\Facades\DB::table('chattrn_settings')->where('key', '_encrypted_access_token')->value('value');
+        $this->assertStringNotContainsString('persisted-token', $stored);
+        $this->assertArrayNotHasKey('_encrypted_access_token', \Chattrn\Connector\Support\Settings::all());
+        // Simulate the next request using stale cached/environment config.
+        config(['chattrn.access_token' => null]);
+        $this->assertSame('persisted-token', \Chattrn\Connector\Support\Credentials::token());
+        $this->artisan('chattrn:register')->assertSuccessful();
+        \Illuminate\Support\Facades\Http::assertSentCount(1);
+        $this->withHeaders(['X-Chattrn-Access-Token' => 'persisted-token'])
+            ->getJson('/chattrn/api/2026-10/mapping.json')->assertOk();
+        $this->get('/chattrn/setup/register')->assertOk()->assertDontSee('persisted-token');
+        $this->withHeaders(['X-Chattrn-Access-Token' => 'wrong'])
+            ->getJson('/chattrn/api/2026-10/mapping.json')->assertUnauthorized();
+    }
+
+    public function test_registration_requires_storage_and_rejects_empty_exchange_response(): void
+    {
+        config(['chattrn.access_token' => null]);
+        \Illuminate\Support\Facades\Http::fake(['*' => \Illuminate\Support\Facades\Http::response([])]);
+        $this->assertFalse(\Chattrn\Connector\Support\ChattrnRegistrar::register('setup')['ok']);
+        \Illuminate\Support\Facades\Http::assertNothingSent();
+        $this->artisan('migrate', ['--force' => true])->assertSuccessful();
+        $this->assertFalse(\Chattrn\Connector\Support\ChattrnRegistrar::register('setup')['ok']);
+        $this->assertDatabaseMissing('chattrn_settings', ['key' => '_encrypted_access_token']);
+    }
+
+    public function test_invalid_mapping_is_rejected_without_partial_writes(): void
+    {
+        $this->artisan('migrate', ['--force' => true])->assertSuccessful();
+        $this->withHeaders($this->headers());
+        foreach ([
+            ['store.currency' => null],
+            ['store.delivery_mode' => 'invalid'],
+            ['columns.product.title' => 'does_not_exist'],
+            ['models.product' => 'UntrustedClass'],
+            ['_encrypted_access_token' => 'override'],
+        ] as $values) {
+            $this->putJson('/chattrn/api/2026-10/mapping.json', ['values' => $values])->assertStatus(422);
+        }
+        $this->assertDatabaseCount('chattrn_settings', 0);
+        $this->getJson('/chattrn/api/2026-10/mapping.json')->assertOk();
+    }
+
+    public function test_draft_preview_changes_column_choices_without_saving(): void
+    {
+        $this->artisan('migrate', ['--force' => true])->assertSuccessful();
+        $this->withHeaders($this->headers());
+        $response = $this->postJson('/chattrn/api/2026-10/mapping/preview.json', [
+            'values' => ['columns.product.title' => 'title', 'models.order' => null],
+        ])->assertOk();
+        $rows = collect($response->json('cards'))->flatMap(fn ($card) => $card['groups'])->flatMap(fn ($group) => $group['rows']);
+        $this->assertSame('Phone A', $rows->firstWhere('key', 'columns.product.title')['sample']);
+        $this->assertSame('', $rows->firstWhere('key', 'models.order')['value']);
+        $this->assertNull($rows->firstWhere('key', 'columns.order.phone')['sample']);
+        $this->assertSame(Order::class, config('chattrn.models.order'));
+        $changed = $this->postJson('/chattrn/api/2026-10/mapping/preview.json', [
+            'values' => ['models.product' => Order::class],
+        ])->assertOk();
+        $changedRows = collect($changed->json('cards'))->flatMap(fn ($card) => $card['groups'])->flatMap(fn ($group) => $group['rows']);
+        $options = $changedRows->firstWhere('key', 'columns.product.title')['options'];
+        $this->assertContains('number', $options);
+        $this->assertNotContains('title', $options);
+        $this->assertNull($changedRows->firstWhere('key', 'columns.product.title')['sample']);
+        $this->assertSame(Product::class, config('chattrn.models.product'));
+        $this->assertDatabaseCount('chattrn_settings', 0);
+        $this->postJson('/chattrn/api/2026-10/mapping/preview.json', ['values' => ['models.product' => 'ArbitraryClass']])->assertStatus(422);
+        $this->assertSame(Product::class, config('chattrn.models.product'));
+        $this->withHeaders(['X-Chattrn-Access-Token' => 'wrong'])->postJson('/chattrn/api/2026-10/mapping/preview.json', ['values' => []])->assertUnauthorized();
+    }
+
     public function test_store_profile_responds(): void
     {
         $this->withHeaders($this->headers())->get('/chattrn/api/2026-10/store.json')
@@ -126,6 +211,7 @@ class ChattrnApiTest extends TestCase
         $this->get('/chattrn/api/2026-10/store.json')->assertStatus(401)
             ->assertJsonPath('errors', 'Invalid access token');
 
+        $this->get('/chattrn/setup/register')->assertOk()->assertDontSee('persisted-token');
         $this->withHeaders(['X-Chattrn-Access-Token' => 'wrong'])
             ->get('/chattrn/api/2026-10/store.json')->assertStatus(401);
     }

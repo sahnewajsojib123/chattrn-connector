@@ -45,6 +45,9 @@ class Settings
 
             $out = [];
             foreach ($rows as $key => $value) {
+                if (str_starts_with($key, '_')) {
+                    continue;
+                }
                 $out[$key] = json_decode((string) $value, true);
             }
 
@@ -61,6 +64,11 @@ class Settings
     // small and this only runs on an explicit save, not per-request).
     public static function setMany(array $values): void
     {
+        foreach (array_keys($values) as $key) {
+            if (! preg_match('/^(models|columns|inventory|store)\./', $key)) {
+                throw new \InvalidArgumentException('Only mapping settings can be saved here.');
+            }
+        }
         self::ensureTable();
 
         $now = now();

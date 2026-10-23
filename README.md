@@ -5,50 +5,53 @@ orders the same way it reads a native Chattrn API or Shopify store. The full end
 contract (`openapi.yaml`) lives in the main [chattrn-API](https://github.com/sahsojib114/chattrn-API)
 repo, alongside the Chattrn-side backend this package registers with.
 
-## Install
+## Connect from the Chattrn dashboard
 
-```bash
-composer require chattrn/connector
-php artisan chattrn:install
+1. Install with `composer require chattrn/connector` and deploy the package.
+2. Generate a setup token in Chattrn when ready to deploy. Set `CHATTRN_TOKEN` and
+   `CHATTRN_BACKEND_URL` in your hosting environment. The backend URL must be reachable
+   from your store; `localhost` on your computer is not reachable from a hosted app.
+3. After `php artisan migrate --force`, run `php artisan chattrn:register --no-interaction`.
+4. In Chattrn, review **Map your tables**, save, then verify the live product preview.
+
+Registration does not require models to be mapped. It exchanges the short-lived setup token
+and encrypts the ongoing access token with Laravel's `APP_KEY` in `chattrn_settings`.
+Keep `APP_KEY` stable and use a persistent database. No access token is printed or copied
+into `.env`, and no second deployment is required. Existing `CHATTRN_ACCESS_TOKEN`
+environment configurations continue to work. An encrypted database credential takes
+precedence over the environment token once paired.
+
+### Hosting without a shell
+
+Add this after migrations and before starting the web server in your startup script:
+
+```sh
+if [ -n "${CHATTRN_TOKEN:-}" ]; then
+    if ! php artisan chattrn:register --no-interaction; then
+        echo 'Chattrn pairing failed; check the setup token and backend URL.' >&2
+    fi
+fi
 ```
 
-Paste the `CHATTRN_TOKEN=ct_live_...` line from the **Install package** screen into `.env`,
-then map your models either from the terminal:
+Deploy once. Registration is idempotent after a successful exchange: future starts reuse the
+saved credential rather than exchanging the single-use token again. An expired setup token
+does not prevent the storefront from starting. The database migration must run before pairing.
 
-```bash
-php artisan chattrn:map
-```
+### Mapping and validation
 
-or from a browser, if your host doesn't give you shell/SSH access (Render's free tier, for
-example):
+Mappings are saved in the database and take effect without redeploying. The dashboard lists
+actual columns, including product names, images, brand, variant fields, order/customer
+fields, and per-location inventory. Optional settings are collapsed. Invalid columns,
+unknown models, missing price/stock sources, blank currency, and invalid delivery modes
+are rejected before writing. Product is required; Order and Customer are optional.
 
-```
-https://your-store.com/chattrn/setup/map?token=YOUR_CHATTRN_TOKEN
-```
+Column choices refresh when a model changes. Catalog examples appear beside the chosen
+columns, while order/customer values are omitted. Previewing a draft does not write settings;
+only Save mapping persists the reviewed draft. If the host is waking up, retry loading tables
+before saving. The package must be updated for the dashboard's preview endpoint to work.
 
-Both ask which Eloquent models are your Product, Variant, Order and Customer and which columns
-hold price and stock — pre-filled with best guesses from your actual tables (`chattrn:map`
-fills in the terminal prompt's default; the browser screen pre-fills the form), so most of the
-time it's "confirm the guess," not "type it from memory." The mapping is saved to a
-`chattrn_settings` database table (migrated automatically the first time you run
-`php artisan migrate`), not to `config/chattrn.php` — so a later change, from either entry
-point, takes effect immediately with no git commit or redeploy. Only secrets
-(`CHATTRN_ACCESS_TOKEN`, `CHATTRN_TOKEN`, `CHATTRN_BACKEND_URL`) and `APP_URL`/`APP_NAME` stay
-in `.env`, same as any other Laravel secret.
-
-The first `chattrn:map` run (or the first save from `/chattrn/setup/map`) also registers with
-Chattrn, which replies with the ongoing `CHATTRN_ACCESS_TOKEN` to add to `.env` (remove
-`CHATTRN_TOKEN` once you have it; it's single-use).
-
-```bash
-php artisan chattrn:check
-```
-
-Runs a handful of local contract checks (store profile, catalog, locations, orders, and that a
-wrong token is refused) against your own app. If your host blocks shell access, use
-`/chattrn/setup/map/preview?token=...` instead — it runs your actual mapping against one real
-product and one real order and shows the resulting JSON, so you can sanity-check it from a
-browser too.
+The existing terminal `chattrn:map` command and store-hosted setup screens remain available.
+The dashboard is the recommended mapping path.
 
 ## What it assumes about your models
 

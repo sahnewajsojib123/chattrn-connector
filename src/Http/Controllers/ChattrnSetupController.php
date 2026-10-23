@@ -44,8 +44,8 @@ class ChattrnSetupController extends Controller
             return $this->respond($request, 200, ['ok' => true, 'diagnostics' => $diagnostics], $this->renderDiagnostics($diagnostics));
         }
 
-        if (config('chattrn.access_token')) {
-            $payload = ['ok' => true, 'message' => 'Already registered (CHATTRN_ACCESS_TOKEN is already set).'];
+        if (\Chattrn\Connector\Support\Credentials::token()) {
+            $payload = ['ok' => true, 'message' => 'Already connected. Continue in your Chattrn dashboard.'];
             return $this->respond($request, 200, $payload, $this->renderConnect(
                 bannerType: 'ok',
                 bannerMessage: $payload['message'],
@@ -77,17 +77,6 @@ class ChattrnSetupController extends Controller
             ));
         }
 
-        if (! config('chattrn.models.product') || ! config('chattrn.models.order')) {
-            $payload = ['ok' => false, 'message' => 'Product/Order aren\'t mapped yet - visit /chattrn/setup/map first.'];
-            return $this->respond($request, 422, $payload, $this->renderConnect(
-                bannerType: 'err',
-                bannerMessage: $payload['message'],
-                connected: false,
-                revealToken: null,
-                token: $request->query('token', '')
-            ));
-        }
-
         $result = ChattrnRegistrar::register($expected);
         if (! $result['ok']) {
             $payload = ['ok' => false, 'message' => $result['message']];
@@ -102,16 +91,15 @@ class ChattrnSetupController extends Controller
 
         $payload = [
             'ok' => true,
-            'message' => 'Registered. Add this to .env, then remove the CHATTRN_TOKEN line and redeploy.',
-            'CHATTRN_ACCESS_TOKEN' => $result['access_token'],
+            'message' => 'Connected. Access token saved encrypted in your database. Continue with mapping in Chattrn.',
         ];
 
         return $this->respond($request, 200, $payload, $this->renderConnect(
-            bannerType: 'warn',
+            bannerType: 'ok',
             bannerMessage: $payload['message'],
             connected: true,
-            revealToken: $result['access_token'],
-            token: $result['access_token']
+            revealToken: null,
+            token: ''
         ));
     }
 
@@ -149,11 +137,9 @@ class ChattrnSetupController extends Controller
         $html .= $this->environmentCard($connected);
         $html .= '</div>';
 
-        $mapUrl = '/chattrn/setup/map?token=' . e($token);
-        $continueDisabled = ! $connected;
-        $continueHtml = $continueDisabled
-            ? '<span class="btn btn-disabled" title="Finish registering above first">Continue: map your tables</span>'
-            : '<a class="btn" href="' . $mapUrl . '">Continue: map your tables</a>';
+        $continueHtml = $connected
+            ? '<span class="desc">Return to your Chattrn dashboard to review mappings.</span>'
+            : '<span class="btn btn-disabled">Finish pairing first</span>';
 
         $html .= '<div class="footer-bar">'
             . '<a class="btn btn-secondary" href="/">Back</a>'
@@ -179,11 +165,9 @@ function chattrnCopy(btn, value) {
             ? SetupLayout::badge('ok', 'CONNECTED')
             : SetupLayout::badge('err', 'NOT CONNECTED');
 
-        $tokenField = $revealToken
-            ? '<code>' . e($revealToken) . '</code><button type="button" onclick="chattrnCopy(this, ' . e(json_encode($revealToken)) . ')">Copy</button>'
-            : ($connected
-                ? '<code>' . e($this->maskToken((string) config('chattrn.access_token'))) . '</code><button type="button" onclick="chattrnCopy(this, ' . e(json_encode((string) config('chattrn.access_token'))) . ')">Copy</button>'
-                : '<span class="val">Not issued yet</span>');
+        $tokenField = $connected
+            ? '<span class="val">Saved securely — no copying required</span>'
+            : '<span class="val">Not issued yet</span>';
 
         $html = '<section class="card">';
         $html .= '<div class="card-head"><div class="titles">'
@@ -198,10 +182,7 @@ function chattrnCopy(btn, value) {
 
         $html .= '<div class="note">'
             . '<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><rect x="4" y="8" width="10" height="7" rx="1.5" stroke="#6c7584" stroke-width="1.3" fill="none"/><path d="M6 8V5.5a3 3 0 0 1 6 0V8" stroke="#6c7584" stroke-width="1.3" fill="none"/></svg>'
-            . '<p>' . ($revealToken
-                ? 'This is shown once. Add it to your host\'s environment as CHATTRN_ACCESS_TOKEN, remove CHATTRN_TOKEN, then redeploy.'
-                : 'Stored in your environment, not in a committed config file. Chattrn only calls your package from its servers, never from a customer\'s browser.')
-            . '</p></div>';
+            . '<p>New credentials are encrypted in your database. Existing environment credentials are also supported.</p></div>';
 
         $html .= '</section>';
 
@@ -231,7 +212,9 @@ function chattrnCopy(btn, value) {
             . '<p class="section-hint">What Chattrn can see on this install so far.</p>'
             . '<div class="row-list">';
 
-        foreach ($rows as [$label, $done, $hint]) {
+        foreach ($rows as $row) {
+            [$label, $done] = $row;
+            $hint = $row[2] ?? null;
             $hint = $hint ?? null;
             $state = $done
                 ? '<span class="state ok">DONE</span>'
