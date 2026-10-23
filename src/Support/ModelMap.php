@@ -210,9 +210,13 @@ class ModelMap
         ]];
     }
 
-    private static function money($value): string
+    private static function money($value): ?string
     {
-        return $value === null ? '0.00' : number_format((float) $value, 2, '.', '');
+        if ((! is_string($value) && ! is_int($value) && ! is_float($value)) ||
+            ! preg_match('/^-?\d+(?:\.\d+)?$/', trim((string) $value)) || ! is_finite((float) $value)) {
+            return null;
+        }
+        return number_format((float) $value, 2, '.', '');
     }
 
     private static function moneyOrNull($value): ?string

@@ -64,8 +64,7 @@ This is a best-effort mapping, not a full ORM introspection tool:
   if present, otherwise orders are served with an empty `line_items` array.
 - **Customer** is optional — only needed for `customers/search.json` and
   `customers/{id}/orders.json`.
-- `draft_orders.json` (cart quote) computes totals in memory from the posted line items; it
-  does not persist anything, and `draft_orders/{id}/complete.json` returns 404 until you wire
+- `draft_orders.json` and draft completion are disabled (HTTP 501) until you wire
   up your own checkout flow there (`ChattrnApiController::completeDraftOrder`).
 
 Column names that don't already match the canonical ones (`price`, `stock`, `title`, ...) are
@@ -104,3 +103,17 @@ vendor/bin/phpunit
 in an environment with normal Packagist access, with a fixture app wiring up `tests/` (see
 `tests/ChattrnApiTest.php` for a starting Testbench-style suite covering store.json, the
 product/order endpoints, pagination and the wrong-token 401).
+
+## Correctness and reconnect behavior
+
+The generic package advertises cancellation, draft orders and checkout completion as unsupported.
+Those endpoints return HTTP 501 until a merchant adapter implements authoritative pricing and
+business rules. Mapping an Order model alone does not enable write actions.
+
+To reconnect, use **Reconnect package** in Chattrn. Set the returned setup token as `CHATTRN_TOKEN`
+on the Laravel host and redeploy with `php artisan chattrn:register` in the startup sequence.
+Do not replace `CHATTRN_ACCESS_TOKEN`: the package stores its active access key encrypted in the database.
+Generating a reconnect setup token keeps the existing connection active until the exchange succeeds.
+The package persists an exchange ID before calling the backend, so an interrupted exchange can be retried
+with the same setup token before its 30-minute expiry. A new setup token explicitly starts a new exchange.
+Deploy the corresponding CN-API backend update before this package update.

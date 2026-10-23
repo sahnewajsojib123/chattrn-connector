@@ -71,13 +71,15 @@ class Settings
         }
         self::ensureTable();
 
-        $now = now();
-        foreach ($values as $path => $value) {
-            DB::table('chattrn_settings')->updateOrInsert(
-                ['key' => $path],
-                ['value' => json_encode($value), 'updated_at' => $now, 'created_at' => $now]
-            );
-        }
+        DB::transaction(function () use ($values) {
+            $now = now();
+            foreach ($values as $path => $value) {
+                DB::table('chattrn_settings')->updateOrInsert(
+                    ['key' => $path],
+                    ['value' => json_encode($value), 'updated_at' => $now, 'created_at' => $now]
+                );
+            }
+        });
 
         Cache::forget(self::CACHE_KEY);
     }

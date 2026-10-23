@@ -17,12 +17,11 @@ class RegisterCommand extends Command
 
     public function handle(): int
     {
-        if (\Chattrn\Connector\Support\Credentials::token()) {
+        $token = config('chattrn.connection_token');
+        if (! $token && \Chattrn\Connector\Support\Credentials::token()) {
             $this->info('Already connected. Continue with Map your tables in Chattrn.');
             return self::SUCCESS;
         }
-
-        $token = config('chattrn.connection_token');
         if (! $token) {
             $this->error('No CHATTRN_TOKEN found in .env. Paste it in first (from the Install package screen), then re-run chattrn:register.');
             return self::FAILURE;

@@ -39,9 +39,9 @@ class ChattrnApiController extends Controller
                 'locations_resolve' => (bool) config('chattrn.models.location'),
                 'customers_search' => $hasCustomer,
                 'orders_read' => $hasOrder,
-                'orders_cancel' => $hasOrder,
-                'draft_orders' => $hasOrder,
-                'draft_orders_complete' => $hasOrder,
+                'orders_cancel' => false,
+                'draft_orders' => false,
+                'draft_orders_complete' => false,
                 'delivery_rates' => false,
             ],
             'product_url_template' => $store['product_url_template'],
@@ -224,55 +224,24 @@ class ChattrnApiController extends Controller
 
     public function cancelOrder(Request $request, string $id): JsonResponse
     {
-        $class = ModelMap::requireModel(ModelMap::orderModelClass(), 'Order');
-        $order = $class::query()->find($id);
-        if (! $order) {
-            return $this->version(response()->json(['errors' => 'Not Found'], 404));
-        }
-        if (in_array('cancelled_at', $order->getFillable()) || array_key_exists('cancelled_at', $order->getAttributes())) {
-            $order->cancelled_at = now();
-            $order->save();
-        }
-        $out = ModelMap::toOrder($order);
-        $out['cancelled_at'] = now()->toIso8601String();
-        $out['cancel_reason'] = 'customer';
-        return $this->version(response()->json(['order' => $out]));
+        return $this->version(response()->json(['errors' => 'Cancellation requires a merchant business-rule adapter.'], 501));
     }
 
-    // Cart quote (devspec.txt's Test connection check of the same name): a draft order isn't
-    // persisted anywhere in the merchant's schema, so this quotes totals in memory and hands
-    // back an id only this process recognises. Good enough for Chattrn's pre-checkout price
-    // and stock quote; createOrder/complete still needs the merchant's real checkout flow.
+    // Disabled until a merchant adapter implements authoritative pricing and checkout.
     public function createDraftOrder(Request $request): JsonResponse
     {
-        $items = (array) $request->input('draft_order.line_items', []);
-        $subtotal = array_reduce($items, fn ($sum, $li) => $sum + ((float) ($li['price'] ?? 0) * (int) ($li['quantity'] ?? 1)), 0.0);
-
-        return $this->version(response()->json(['draft_order' => [
-            'id' => random_int(100000, 999999), 'line_items' => $items,
-            'subtotal_price' => number_format($subtotal, 2, '.', ''), 'total_tax' => '0.00',
-            'total_price' => number_format($subtotal, 2, '.', ''), 'currency' => config('chattrn.store.currency'),
-            'status' => 'open',
-        ]], 201));
+        return $this->version(response()->json(['errors' => 'Draft orders require an authoritative pricing and checkout adapter.'], 501));
     }
 
     public function updateDraftOrder(Request $request, string $id): JsonResponse
     {
-        $items = (array) $request->input('draft_order.line_items', []);
-        $subtotal = array_reduce($items, fn ($sum, $li) => $sum + ((float) ($li['price'] ?? 0) * (int) ($li['quantity'] ?? 1)), 0.0);
-
-        return $this->version(response()->json(['draft_order' => [
-            'id' => (int) $id, 'line_items' => $items,
-            'subtotal_price' => number_format($subtotal, 2, '.', ''), 'total_tax' => '0.00',
-            'total_price' => number_format($subtotal, 2, '.', ''), 'currency' => config('chattrn.store.currency'),
-            'status' => 'open',
-        ]]));
+        return $this->version(response()->json(['errors' => 'Draft orders require an authoritative pricing and checkout adapter.'], 501));
     }
 
     public function completeDraftOrder(Request $request, string $id): JsonResponse
     {
         // Without a real checkout integration there is no order to point at; callers should
         // treat Draft order complete as "not supported" until the merchant wires up create.
-        return $this->version(response()->json(['errors' => 'Not Found'], 404));
+        return $this->version(response()->json(['errors' => 'Checkout completion is not supported.'], 501));
     }
 }

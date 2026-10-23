@@ -259,13 +259,74 @@ class ChattrnApiTest extends TestCase
     {
         $id = Order::first()->id;
         $this->withHeaders($this->headers())->post("/chattrn/api/2026-10/orders/{$id}/cancel.json")
-            ->assertOk()->assertJsonPath('order.cancel_reason', 'customer');
+            ->assertStatus(501);
+        $this->assertNull(Order::find($id)->cancelled_at);
     }
 
     public function test_cart_quote_computes_totals(): void
     {
         $this->withHeaders($this->headers())->postJson('/chattrn/api/2026-10/draft_orders.json', [
             'draft_order' => ['line_items' => [['price' => '100.00', 'quantity' => 2]]],
-        ])->assertStatus(201)->assertJsonPath('draft_order.subtotal_price', '200.00');
+        ])->assertStatus(501);
     }
+    public function test_write_capabilities_are_not_advertised(): void
+    {
+        $this->withHeaders($this->headers())->getJson('/chattrn/api/2026-10/store.json')
+            ->assertOk()->assertJsonPath('store.capabilities.orders_cancel', false)
+            ->assertJsonPath('store.capabilities.draft_orders', false)
+            ->assertJsonPath('store.capabilities.draft_orders_complete', false);
+    }
+
+    public function test_registration_retry_reuses_attempt_and_new_setup_token_reconnects(): void
+    {
+        $this->artisan('migrate', ['--force' => true])->assertSuccessful();
+        config(['chattrn.access_token' => null, 'chattrn.backend_url' => 'https://backend.test']);
+        $attempts = [];
+        \Illuminate\Support\Facades\Http::fake(function ($request) use (&$attempts) {
+            $attempts[] = $request['registration_id'];
+            return \Illuminate\Support\Facades\Http::response(count($attempts) === 1 ? [] : ['access_token' => 'new-key']);
+        });
+        $this->assertFalse(\Chattrn\Connector\Support\ChattrnRegistrar::register('first-setup')['ok']);
+        $this->assertTrue(\Chattrn\Connector\Support\ChattrnRegistrar::register('first-setup')['ok']);
+        $this->assertSame($attempts[0], $attempts[1]);
+        $this->assertTrue(\Chattrn\Connector\Support\ChattrnRegistrar::register('first-setup')['ok']);
+        $this->assertCount(2, $attempts);
+        $this->assertTrue(\Chattrn\Connector\Support\ChattrnRegistrar::register('replacement-setup')['ok']);
+        $this->assertNotSame($attempts[1], $attempts[2]);
+    }
+
+    public function test_mapping_save_rolls_back_if_a_later_write_fails(): void
+    {
+        $this->artisan('migrate', ['--force' => true])->assertSuccessful();
+        \Chattrn\Connector\Support\Settings::setMany(['store.currency' => 'BDT']);
+        $failed = false;
+        \Illuminate\Support\Facades\DB::listen(function ($query) use (&$failed) {
+            if (! $failed && str_contains($query->sql, 'insert') && in_array('store.delivery_mode', $query->bindings, true)) {
+                $failed = true;
+                throw new \RuntimeException('Injected interrupted mapping save');
+            }
+        });
+        try {
+            \Chattrn\Connector\Support\Settings::setMany(['store.currency' => 'USD', 'store.delivery_mode' => 'zone']);
+            $this->fail('Expected save failure');
+        } catch (\RuntimeException $error) {
+            $this->assertSame('Injected interrupted mapping save', $error->getMessage());
+        }
+        $this->assertDatabaseHas('chattrn_settings', ['key' => 'store.currency', 'value' => '"BDT"']);
+        $this->assertDatabaseMissing('chattrn_settings', ['key' => 'store.delivery_mode']);
+    }
+
+    public function test_malformed_mapped_price_is_missing_rather_than_free(): void
+    {
+        Schema::table('products', fn (Blueprint $table) => $table->string('bad_price')->nullable());
+        $product = Product::first();
+        $product->update(['bad_price' => 'not a price']);
+        config(['chattrn.columns.variant.price' => 'bad_price']);
+        $this->withHeaders($this->headers())->getJson('/chattrn/api/2026-10/products/'.$product->id.'.json')
+            ->assertOk()->assertJsonPath('product.variants.0.price', null);
+        $product->update(['bad_price' => '0']);
+        $this->getJson('/chattrn/api/2026-10/products/'.$product->id.'.json')
+            ->assertOk()->assertJsonPath('product.variants.0.price', '0.00');
+    }
+
 }
