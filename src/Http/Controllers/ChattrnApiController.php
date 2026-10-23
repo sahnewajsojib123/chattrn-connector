@@ -175,6 +175,10 @@ class ChattrnApiController extends Controller
         [$field, $value] = str_starts_with($query, 'phone:') ? ['phone', substr($query, 6)] : ['email', substr($query, 6)];
         $col = config("chattrn.columns.customer.{$field}", $field);
 
+        if ($field === 'phone' && is_callable([$class, 'normalizePhone'])) {
+            $value = $class::normalizePhone($value);
+        }
+
         $rows = $class::query()->where($col, $value)->get();
         return $this->version(response()->json(['customers' => $rows->map(fn ($c) => ModelMap::toCustomer($c))->values()->all()]));
     }

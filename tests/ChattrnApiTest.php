@@ -61,6 +61,57 @@ class ChattrnApiTest extends TestCase
         return ['X-Chattrn-Access-Token' => 'test-token'];
     }
 
+    public function test_image_column_mapping_is_exposed_saved_and_used(): void
+    {
+        Schema::table('products', function (Blueprint $table) {
+            $table->text('image')->nullable();
+        });
+        Product::first()->update(['image' => 'https://store.test/phone.jpg']);
+        $this->artisan('migrate', ['--force' => true])->assertSuccessful();
+
+        $response = $this->withHeaders($this->headers())
+            ->getJson('/chattrn/api/2026-10/mapping.json')->assertOk();
+        $rows = collect($response->json('cards'))->flatMap(fn ($card) => $card['groups'])
+            ->flatMap(fn ($group) => $group['rows']);
+        $this->assertSame('Image URL column', $rows->firstWhere('key', 'columns.product.image_url')['title']);
+
+        $this->putJson('/chattrn/api/2026-10/mapping.json', [
+            'values' => ['columns.product.image_url' => 'image'],
+        ])->assertOk()->assertJsonPath('saved.0', 'columns.product.image_url');
+        $this->assertSame('image', \Chattrn\Connector\Support\Settings::get('columns.product.image_url'));
+
+        $this->getJson('/chattrn/api/2026-10/products.json')->assertOk()
+            ->assertJsonPath('products.0.images.0.src', 'https://store.test/phone.jpg');
+    }
+
+    public function test_product_name_mapping_drives_catalog_and_search(): void
+    {
+        Schema::table('products', fn (Blueprint $table) => $table->renameColumn('title', 'name'));
+        $this->artisan('migrate', ['--force' => true])->assertSuccessful();
+        $this->withHeaders($this->headers())->putJson('/chattrn/api/2026-10/mapping.json', [
+            'values' => ['columns.product.title' => 'name'],
+        ])->assertOk();
+        $this->getJson('/chattrn/api/2026-10/products.json')->assertOk()
+            ->assertJsonPath('products.0.title', 'Phone A');
+        $this->getJson('/chattrn/api/2026-10/products/search.json?q=Phone%20A')->assertOk()
+            ->assertJsonCount(1, 'products')->assertJsonPath('products.0.title', 'Phone A');
+    }
+
+    public function test_customer_phone_lookup_uses_store_normalization(): void
+    {
+        Schema::create('customers', function (Blueprint $table) {
+            $table->id();
+            $table->string('phone');
+        });
+        config(['chattrn.models.customer' => \Chattrn\Connector\Tests\Fixtures\Customer::class]);
+        \Chattrn\Connector\Tests\Fixtures\Customer::create(['phone' => '8801700000000']);
+        $this->withHeaders($this->headers())
+            ->getJson('/chattrn/api/2026-10/customers/search.json?query=phone%3A%2B8801700000000')
+            ->assertOk()->assertJsonCount(1, 'customers');
+        $this->getJson('/chattrn/api/2026-10/customers/search.json?query=phone%3A%2B8801800000000')
+            ->assertOk()->assertJsonCount(0, 'customers');
+    }
+
     public function test_store_profile_responds(): void
     {
         $this->withHeaders($this->headers())->get('/chattrn/api/2026-10/store.json')

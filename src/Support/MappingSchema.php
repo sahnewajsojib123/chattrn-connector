@@ -75,6 +75,8 @@ class MappingSchema
                 'layout' => 'grid',
                 'groups' => [
                     ['rows' => [
+                        self::colRow('columns.product.title', 'Product name column', 'Your product title or name column', $product, $cols($product), ['title', 'name', 'product_name'], in_array(config('chattrn.columns.product.title'), $cols($product), true) ? config('chattrn.columns.product.title') : null, true, null),
+                        self::colRow('columns.product.image_url', 'Image URL column', 'Your product column containing the image URL (for example image)', $product, $cols($product), ['image_url', 'image', 'photo_url', 'photo'], in_array(config('chattrn.columns.product.image_url'), $cols($product), true) ? config('chattrn.columns.product.image_url') : null, false, null),
                         self::colRow('columns.variant.price', 'Price column', null, $variant ?: $product, $variantCols, ['price', 'amount', 'unit_price'], config('chattrn.columns.variant.price'), true, null),
                         self::colRow('columns.variant.stock', 'Stock column', null, $variant ?: $product, $variantCols, ['stock', 'quantity', 'qty'], config('chattrn.columns.variant.stock'), true, null),
                         self::colRow('columns.variant.title', 'Variant title column', 'Only if Variant is set', $variant ?: $product, $variantCols, ['title', 'name'], config('chattrn.columns.variant.title'), false, null),
